@@ -1,0 +1,9 @@
+*.xcodeproj
+*.xcworkspace
+xcuserdata/
+DerivedData/
+build/
+dist/
+.DS_Store
+WORKFLOW.md
+Config/Local.xcconfig
