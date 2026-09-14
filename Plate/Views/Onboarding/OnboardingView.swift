@@ -7,6 +7,7 @@ struct OnboardingView: View {
     @Environment(\.modelContext) private var context
     @State private var step = 0
     @State private var apiKey = ""
+    @State private var provider: AIProvider = .current
     @State private var keyStatus: KeyStatus = .idle
     @State private var plan = NutritionMath.Plan(bmr: 0, tdee: 0, calories: 0, protein: 0, carbs: 0, fat: 0)
 
@@ -57,7 +58,7 @@ struct OnboardingView: View {
 
     private var footer: some View {
         Button {
-            if step == 6 && !apiKey.isEmpty { Keychain.set(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), for: ClaudeClient.apiKeyAccount) }
+            if step == 6 && !apiKey.isEmpty { Keychain.set(apiKey.trimmingCharacters(in: .whitespacesAndNewlines), for: provider.keyAccount) }
             if step == stepCount - 1 { finish() } else { step += 1 }
         } label: {
             Text(step == stepCount - 1 ? "Start tracking" : (step == 6 && apiKey.isEmpty ? "Skip for now" : "Continue"))
@@ -245,9 +246,14 @@ struct OnboardingView: View {
     }
 
     private var keyStep: some View {
-        page("Photo logging", "Plate sends meal photos to Claude for the estimate. Paste an Anthropic API key to turn that on. Barcodes, search, and manual entry work without it.") {
+        page("Photo logging", "Plate sends meal photos to a hosted model for the estimate. Pick a provider and paste its API key to turn that on. Barcodes, search, and manual entry work without it.") {
             VStack(alignment: .leading, spacing: 12) {
-                SecureField("sk-ant-...", text: $apiKey)
+                Picker("Provider", selection: $provider) {
+                    ForEach(AIProvider.allCases) { Text($0.label).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .onChange(of: provider) { _, p in AIProvider.current = p; apiKey = Keychain.get(p.keyAccount) ?? ""; keyStatus = .idle }
+                SecureField(provider.keyPlaceholder, text: $apiKey)
                     .textContentType(.password)
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
@@ -265,7 +271,7 @@ struct OnboardingView: View {
                     }
                 }
                 .font(.subheadline)
-                Text("Keys are stored in the iOS keychain and only ever sent to api.anthropic.com. Get one at console.anthropic.com. A photo costs about three cents with Claude Opus 5.")
+                Text("\(provider.consoleHint) Keys are stored in the iOS keychain and only ever sent to \(provider.host).")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -276,10 +282,10 @@ struct OnboardingView: View {
     private func testKey() {
         keyStatus = .checking
         let key = apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        Keychain.set(key, for: ClaudeClient.apiKeyAccount)
+        Keychain.set(key, for: provider.keyAccount)
         Task {
             do {
-                try await ClaudeClient().verifyKey()
+                try await AIClient(provider: provider).verifyKey()
                 keyStatus = .ok
             } catch {
                 keyStatus = .failed(error.localizedDescription)

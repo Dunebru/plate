@@ -5,7 +5,8 @@ struct SettingsView: View {
     @Bindable var profile: Profile
     @Environment(\.modelContext) private var context
     @Query(sort: \MealEntry.date) private var meals: [MealEntry]
-    @State private var apiKey = Keychain.get(ClaudeClient.apiKeyAccount) ?? ""
+    @State private var provider: AIProvider = .current
+    @State private var apiKey = Keychain.get(AIProvider.current.keyAccount) ?? ""
     @AppStorage(ClaudeClient.modelDefaultsKey) private var model = ClaudeClient.defaultModel
     @State private var keyStatus: OnboardingView.KeyStatus = .idle
     @State private var exportURL: URL?
@@ -64,9 +65,14 @@ struct SettingsView: View {
                 }
 
                 Section {
-                    SecureField("sk-ant-...", text: $apiKey)
+                    Picker("Provider", selection: $provider) {
+                        ForEach(AIProvider.allCases) { Text($0.label).tag($0) }
+                    }
+                    .pickerStyle(.segmented)
+                    .onChange(of: provider) { _, p in AIProvider.current = p; apiKey = Keychain.get(p.keyAccount) ?? ""; keyStatus = .idle }
+                    SecureField(provider.keyPlaceholder, text: $apiKey)
                         .autocorrectionDisabled().textInputAutocapitalization(.never)
-                        .onChange(of: apiKey) { _, k in Keychain.set(k.trimmingCharacters(in: .whitespacesAndNewlines), for: ClaudeClient.apiKeyAccount); keyStatus = .idle }
+                        .onChange(of: apiKey) { _, k in Keychain.set(k.trimmingCharacters(in: .whitespacesAndNewlines), for: provider.keyAccount); keyStatus = .idle }
                     HStack {
                         Button("Test key") { test() }.disabled(apiKey.isEmpty)
                         Spacer()
@@ -77,16 +83,18 @@ struct SettingsView: View {
                         case .failed(let why): Text(why).font(.caption).foregroundStyle(.red).lineLimit(2)
                         }
                     }
-                    Picker("Model", selection: $model) {
-                        ForEach(ClaudeClient.models, id: \.id) { m in
-                            VStack(alignment: .leading) { Text(m.label); Text(m.note).font(.caption).foregroundStyle(.secondary) }.tag(m.id)
+                    if provider == .anthropic {
+                        Picker("Model", selection: $model) {
+                            ForEach(ClaudeClient.models, id: \.id) { m in
+                                VStack(alignment: .leading) { Text(m.label); Text(m.note).font(.caption).foregroundStyle(.secondary) }.tag(m.id)
+                            }
                         }
+                        .pickerStyle(.inline)
                     }
-                    .pickerStyle(.inline)
                 } header: {
-                    Text("Anthropic API")
+                    Text("Photo analysis")
                 } footer: {
-                    Text("Needed for photo, label, and description logging. Stored in the keychain. Barcodes and search use Open Food Facts and need no key.")
+                    Text("\(provider.consoleHint) Needed for photo, label, and description logging. Stored in the keychain, sent only to \(provider.host). Barcodes and search use Open Food Facts and need no key.")
                 }
 
                 Section("Data") {
@@ -125,7 +133,7 @@ struct SettingsView: View {
     private func test() {
         keyStatus = .checking
         Task {
-            do { try await ClaudeClient().verifyKey(); keyStatus = .ok }
+            do { try await AIClient(provider: provider).verifyKey(); keyStatus = .ok }
             catch { keyStatus = .failed(error.localizedDescription) }
         }
     }

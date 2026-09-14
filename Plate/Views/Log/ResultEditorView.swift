@@ -110,7 +110,7 @@ struct ResultEditorView: View {
         entry.notes = meal.notes
         entry.healthScore = meal.healthScore
         entry.confidence = meal.confidence
-        if let image { entry.imageData = ClaudeClient.downscaled(image, maxSide: 900).jpegData(compressionQuality: 0.75) }
+        if let image { entry.imageData = AIClient.downscaled(image, maxSide: 900).jpegData(compressionQuality: 0.75) }
         for (i, item) in meal.items.enumerated() {
             entry.items.append(MealItem(name: item.name, quantity: item.quantity, unit: item.unit, gramsPerUnit: item.gramsPerUnit,
                                         base: item.base, confidence: item.confidence, order: i))

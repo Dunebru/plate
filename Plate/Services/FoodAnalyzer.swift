@@ -28,7 +28,7 @@ struct AnalyzedMeal: Equatable {
 
 /// Builds prompts for the three model-backed flows: meal photo, nutrition label photo, and text description.
 struct FoodAnalyzer {
-    var client = ClaudeClient()
+    var client = AIClient()
 
     static let system = """
     You are a careful registered dietitian estimating the nutrition of a single meal for a food log. \
@@ -145,7 +145,7 @@ struct FoodAnalyzer {
         do {
             raw = try JSONDecoder().decode(Raw.self, from: data)
         } catch {
-            throw ClaudeClient.ClientError.badJSON(String(decoding: data, as: UTF8.self))
+            throw AIError.badJSON(String(decoding: data, as: UTF8.self))
         }
         let items = raw.items.map { r in
             AnalyzedMeal.Item(

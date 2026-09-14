@@ -2,7 +2,7 @@
 
 Last updated: September 14, 2026
 
-Plate stores your food log, weights, and profile on your iPhone (and in Apple Health when you turn that on). Photo, label, and description logging send that photo or text directly to Anthropic's API using an API key you supply; that traffic is governed by Anthropic's privacy policy and your own account. Barcode and search lookups go to Open Food Facts. Nothing is sent to the developer.
+Plate stores your food log, weights, and profile on your iPhone (and in Apple Health when you turn that on). Photo, label, and description logging send that photo or text directly to the model provider you choose (Google Gemini or Anthropic) using an API key you supply; that traffic is governed by that provider's privacy policy and your own account. Barcode and search lookups go to Open Food Facts. Nothing is sent to the developer.
 
 **Data collection.** Plate does not collect, store, or transmit personal data to the developer. There are no accounts, no analytics, no advertising, and no tracking.
 

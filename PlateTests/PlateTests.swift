@@ -92,3 +92,18 @@ final class MealTests: XCTestCase {
         XCTAssertEqual(DayStats.rollover(target: 1600, meals: [m1, m2], today: today), 100)
     }
 }
+
+final class GeminiSchemaTests: XCTestCase {
+    func testSchemaConversion() {
+        let out = GeminiClient.geminiSchema(FoodAnalyzer.mealSchema)
+        XCTAssertEqual(out["type"] as? String, "OBJECT")
+        XCTAssertNil(out["additionalProperties"])
+        let props = out["properties"] as! [String: Any]
+        let items = props["items"] as! [String: Any]
+        XCTAssertEqual(items["type"] as? String, "ARRAY")
+        let item = items["items"] as! [String: Any]
+        XCTAssertEqual(item["type"] as? String, "OBJECT")
+        XCTAssertEqual(((item["properties"] as! [String: Any])["quantity"] as! [String: Any])["type"] as? String, "NUMBER")
+        XCTAssertEqual((item["required"] as! [String]).count, 12)
+    }
+}

@@ -19,7 +19,7 @@
   <img src="docs/screenshot.png" width="900" alt="Plate screens">
 </p>
 
-Cal AI, MyFitnessPal Premium, and the other photo trackers charge $50 to $80 a year, keep your food photos on their servers, and hide the barcode scanner behind a paywall. Plate does the same job with your own Anthropic API key (a meal photo costs about three cents), Open Food Facts for barcodes, and Apple Health for everything else. Your log lives in SwiftData on the phone and in Health, nowhere else.
+Cal AI, MyFitnessPal Premium, and the other photo trackers charge $50 to $80 a year, keep your food photos on their servers, and hide the barcode scanner behind a paywall. Plate does the same job with your own model API key (Google Gemini has a free tier that covers about 250 photos a day; Anthropic is the paid option at about three cents a photo), Open Food Facts for barcodes, and Apple Health for everything else. Your log lives in SwiftData on the phone and in Health, nowhere else.
 
 <details>
 <summary>Table of contents</summary>
@@ -65,7 +65,7 @@ In Xcode: select the Plate target, Signing & Capabilities, pick your team, then 
 scripts/install-device.sh <YOUR_TEAM_ID>
 ```
 
-Requires iOS 18 or newer. Photo, label, and description logging need an Anthropic API key from console.anthropic.com, entered once in Settings and kept in the keychain. Barcodes, search, saved foods, and manual entry work without one.
+Requires iOS 18 or newer. Photo, label, and description logging need an API key, entered once in Settings and kept in the keychain: a free Gemini key from aistudio.google.com, or an Anthropic key from console.anthropic.com. Barcodes, search, saved foods, and manual entry work without one.
 
 ## Usage
 
@@ -88,7 +88,7 @@ Requires iOS 18 or newer. Photo, label, and description logging need an Anthropi
 Usually within 10 to 30 percent, worse for stews, curries, and restaurant food where oil is invisible. That is the same range as every photo tracker, which is why the review screen exists. Consistency beats precision: the weekly trend and the reality check are what you should trust.
 
 **Which model does it use?**
-Claude Opus 5 by default, with Claude Sonnet 5 as a cheaper option in Settings. Requests go straight from the phone to api.anthropic.com with your key. Nothing goes through any other server.
+Gemini 2.5 Flash by default, which is free for personal volumes. Switch to Anthropic in Settings for Claude Opus 5 or Sonnet 5. Requests go straight from the phone to the provider with your key. Nothing goes through any other server.
 
 **Why does it need Apple Health?**
 It does not. Turn it off in Settings and everything stays local to the app. With it on, other apps and your watch see your nutrition, and Plate can add workout calories to the budget.
