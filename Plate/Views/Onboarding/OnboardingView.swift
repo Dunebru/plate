@@ -10,6 +10,7 @@ struct OnboardingView: View {
     @State private var provider: AIProvider = .current
     @State private var keyStatus: KeyStatus = .idle
     @State private var plan = NutritionMath.Plan(bmr: 0, tdee: 0, calories: 0, protein: 0, carbs: 0, fat: 0)
+    @State private var showSources = false
 
     enum KeyStatus { case idle, checking, ok, failed(String) }
 
@@ -230,9 +231,15 @@ struct OnboardingView: View {
                     Label("Reach \(Units.weightString(profile.targetWeightKg, profile.units, decimals: 0)) around \(date.formatted(.dateTime.month(.wide).day()))", systemImage: "flag.checkered")
                         .font(.subheadline)
                 }
+                Divider()
+                Button { showSources = true } label: {
+                    Label("How these numbers are calculated, with sources", systemImage: "book")
+                        .font(.footnote)
+                }
             }
             .card()
         }
+        .sheet(isPresented: $showSources) { NavigationStack { SourcesView() } }
     }
 
     private func macroRow(_ name: String, _ grams: Int, _ color: Color) -> some View {

@@ -21,6 +21,7 @@ struct SettingsView: View {
                     row("Carbs", $profile.carbTarget, "g")
                     row("Fat", $profile.fatTarget, "g")
                     Button("Recalculate from my stats") { profile.recalculateTargets() }
+                    NavigationLink { SourcesView() } label: { Label("How these numbers are calculated", systemImage: "book") }
                     Text("Editing calories does not change the macros. Recalculate to get a matching set.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
@@ -110,6 +111,7 @@ struct SettingsView: View {
                     LabeledContent("Version", value: Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "")
                     Link("Source on GitHub", destination: URL(string: "https://github.com/Dunebru/plate")!)
                     Link("Open Food Facts", destination: URL(string: "https://world.openfoodfacts.org")!)
+                    NavigationLink("Sources and medical disclaimer") { SourcesView() }
                     Text("Estimates from a photo are typically within 10 to 30 percent. Check the portions, correct what is wrong, and trust the weekly trend over any single number.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
