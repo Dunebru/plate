@@ -96,7 +96,7 @@ struct ResultEditorView: View {
         error = nil
         Task {
             do {
-                meal = try await FoodAnalyzer().fix(meal, image: image, correction: correction)
+                meal = try await FoodAnalyzer(context: .init(profile: profile)).fix(meal, image: image, correction: correction)
                 correction = ""
             } catch {
                 self.error = error.localizedDescription

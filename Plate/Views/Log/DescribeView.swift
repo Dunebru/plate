@@ -2,6 +2,7 @@ import SwiftUI
 
 /// Type what you ate. Good for meals with no photo, or things the camera cannot see.
 struct DescribeView: View {
+    var context: FoodAnalyzer.Context? = nil
     var onResult: (AnalyzedMeal) -> Void
     @State private var text = ""
     @State private var analyzing = false
@@ -44,7 +45,7 @@ struct DescribeView: View {
         error = nil
         Task {
             do {
-                let meal = try await FoodAnalyzer().analyzeDescription(text)
+                let meal = try await FoodAnalyzer(context: context).analyzeDescription(text)
                 analyzing = false
                 onResult(meal)
             } catch {

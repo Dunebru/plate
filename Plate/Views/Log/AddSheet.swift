@@ -36,9 +36,9 @@ struct AddSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .camera(let mode): CameraFlowView(mode: mode) { meal, image in present(meal, image) }
+                case .camera(let mode): CameraFlowView(mode: mode, context: .init(profile: profile)) { meal, image in present(meal, image) }
                 case .barcode: BarcodeFlowView { meal, image in present(meal, image) }
-                case .describe: DescribeView { meal in present(meal, nil) }
+                case .describe: DescribeView(context: .init(profile: profile)) { meal in present(meal, nil) }
                 case .saved: SavedFoodsView { meal in present(meal, nil) }
                 case .search: SearchFoodsView { meal in present(meal, nil) }
                 }

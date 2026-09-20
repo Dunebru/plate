@@ -1,5 +1,5 @@
-import SwiftUI
 import SwiftData
+import SwiftUI
 
 struct HomeView: View {
     @Bindable var profile: Profile
@@ -13,35 +13,45 @@ struct HomeView: View {
     private var dayMeals: [MealEntry] { meals.filter { DayStats.sameDay($0.date, day) } }
     private var totals: Nutrients { dayMeals.reduce(Nutrients.zero) { $0 + $1.totals } }
     private var streak: Int { DayStats.streak(meals: meals) }
+    private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
+    /// The number on the ring. Rollover and workout calories only apply to today.
     private var calorieTarget: Int {
-        var t = profile.calorieTarget
-        if profile.rolloverCalories { t += DayStats.rollover(target: profile.calorieTarget, meals: meals, today: day) }
-        if profile.addExerciseCalories, Calendar.current.isDateInToday(day) { t += Int(health.activeEnergyToday) }
-        return t
+        var target = profile.calorieTarget
+        if let split = NutritionMath.daySplit(calories: profile.calorieTarget, cycling: profile.cycling,
+                                              trainingDaysPerWeek: profile.trainingDaysPerWeek),
+           profile.cycling == .weekends {
+            let weekday = Calendar.current.component(.weekday, from: day)
+            target = (weekday == 1 || weekday == 7) ? split.higher : split.lower
+        }
+        if profile.rolloverCalories { target += DayStats.rollover(target: profile.calorieTarget, meals: meals, today: day) }
+        if profile.addExerciseCalories, isToday { target += Int(health.activeEnergyToday) }
+        return target
     }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 14) {
+                VStack(spacing: 12) {
                     WeekStrip(selected: $day, meals: meals)
-                    summaryCard
-                    HStack(spacing: 10) {
-                        MacroCard(title: "Protein", eaten: totals.protein, target: Double(profile.proteinTarget), color: .protein)
-                        MacroCard(title: "Carbs", eaten: totals.carbs, target: Double(profile.carbTarget), color: .carbs)
-                        MacroCard(title: "Fat", eaten: totals.fat, target: Double(profile.fatTarget), color: .fat)
-                    }
-                    secondaryRow
+                    hero
+                    macroRow
+                    microRow
                     mealList
                 }
                 .padding(.horizontal, 16)
-                .padding(.bottom, 16)
+                .padding(.bottom, 24)
             }
             .safeAreaInset(edge: .bottom) { addButton }
             .background(Color(.systemGroupedBackground))
             .navigationTitle(day.dayTitle)
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    NavigationLink { PlanView(profile: profile) } label: {
+                        Image(systemName: "list.clipboard")
+                    }
+                    .accessibilityLabel("Your plan")
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     HStack(spacing: 4) {
                         Image(systemName: "flame.fill").foregroundStyle(streak > 0 ? .orange : .secondary)
@@ -57,57 +67,95 @@ struct HomeView: View {
         }
     }
 
-    private var summaryCard: some View {
-        HStack(spacing: 20) {
-            CalorieRing(eaten: totals.calories, target: Double(calorieTarget))
-                .frame(width: 150, height: 150)
-            VStack(alignment: .leading, spacing: 12) {
-                stat("Eaten", "\(Int(totals.calories.rounded()))", "fork.knife")
-                stat("Target", "\(calorieTarget)", "target")
-                if profile.addExerciseCalories || health.activeEnergyToday > 0 {
-                    stat("Burned", "\(Int(health.activeEnergyToday))", "figure.run")
+    // MARK: Hero
+
+    private var remaining: Int { calorieTarget - Int(totals.calories.rounded()) }
+
+    private var hero: some View {
+        HStack(spacing: 18) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(remaining >= 0 ? "Calories left" : "Over by")
+                    .font(.footnote.weight(.medium)).foregroundStyle(.secondary)
+                Text("\(abs(remaining))")
+                    .font(.system(size: 46, weight: .bold, design: .rounded))
+                    .monospacedDigit()
+                    .contentTransition(.numericText())
+                    .foregroundStyle(remaining >= 0 ? Color.primary : Color.red)
+                HStack(spacing: 10) {
+                    small("\(Int(totals.calories.rounded()))", "eaten")
+                    small("\(calorieTarget)", "target")
+                    if profile.addExerciseCalories, health.activeEnergyToday > 0 {
+                        small("\(Int(health.activeEnergyToday))", "burned")
+                    }
                 }
+                .padding(.top, 6)
             }
             Spacer(minLength: 0)
+            CalorieRing(eaten: totals.calories, target: Double(calorieTarget))
+                .frame(width: 112, height: 112)
         }
         .card()
     }
 
-    private func stat(_ label: String, _ value: String, _ symbol: String) -> some View {
+    private func small(_ value: String, _ label: String) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+    }
+
+    // MARK: Macros
+
+    private var macroRow: some View {
         HStack(spacing: 10) {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 20)
-            VStack(alignment: .leading, spacing: 0) {
-                Text(value).font(.system(.headline, design: .rounded)).monospacedDigit().contentTransition(.numericText())
-                Text(label).font(.caption).foregroundStyle(.secondary)
+            MacroDial(title: "Protein", eaten: totals.protein, target: Double(profile.proteinTarget), color: .protein)
+            MacroDial(title: "Carbs", eaten: totals.carbs, target: Double(profile.carbTarget), color: .carbs)
+            MacroDial(title: "Fat", eaten: totals.fat, target: Double(profile.fatTarget), color: .fat)
+        }
+    }
+
+    private var microRow: some View {
+        HStack(spacing: 10) {
+            micro("Fiber", "\(Int(totals.fiber.rounded()))/\(profile.fiberTarget) g",
+                  done: totals.fiber >= Double(profile.fiberTarget))
+            micro("Sugar", "\(Int(totals.sugar.rounded())) g", done: false)
+            micro("Sodium", "\(Int(totals.sodium.rounded())) mg", done: false)
+            if health.stepsToday > 0, isToday {
+                micro("Steps", health.stepsToday.formatted(), done: false)
             }
         }
     }
 
-    private var secondaryRow: some View {
-        HStack(spacing: 10) {
-            miniStat("Fiber", "\(Int(totals.fiber.rounded())) g")
-            miniStat("Sugar", "\(Int(totals.sugar.rounded())) g")
-            miniStat("Sodium", "\(Int(totals.sodium.rounded())) mg")
-            if health.stepsToday > 0 { miniStat("Steps", health.stepsToday.formatted()) }
-        }
-    }
-
-    private func miniStat(_ label: String, _ value: String) -> some View {
+    private func micro(_ label: String, _ value: String, done: Bool) -> some View {
         VStack(spacing: 2) {
             Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
+                .foregroundStyle(done ? Color.green : Color.primary)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(label) \(value)")
     }
+
+    // MARK: Meals
 
     private var mealList: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Logged").font(.headline).padding(.top, 6)
+            HStack {
+                Text("Logged").font(.headline)
+                Spacer()
+                if !dayMeals.isEmpty {
+                    Text("\(dayMeals.count) \(dayMeals.count == 1 ? "meal" : "meals")")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+            .padding(.top, 6)
+
             if dayMeals.isEmpty {
                 EmptyStateView(symbol: "camera.viewfinder", title: "Nothing logged yet",
-                               message: "Tap the plus to photograph a meal, scan a barcode, or describe what you ate.")
+                               message: "Tap the plus to photograph a meal, scan a barcode, or just describe what you ate.")
                     .card()
             } else {
                 ForEach(dayMeals) { meal in
@@ -156,6 +204,46 @@ struct HomeView: View {
         copy.recalculate()
         context.insert(copy)
         if profile.writeToHealth { Task { await HealthStore.shared.write(meal: copy) } }
+    }
+}
+
+/// A macro as a dial rather than a bar, so three of them read at a glance.
+struct MacroDial: View {
+    var title: String
+    var eaten: Double
+    var target: Double
+    var color: Color
+
+    private var fraction: Double { target > 0 ? min(eaten / target, 1) : 0 }
+    private var left: Int { Int((target - eaten).rounded()) }
+
+    var body: some View {
+        VStack(spacing: 8) {
+            ZStack {
+                Circle().stroke(color.opacity(0.18), lineWidth: 7)
+                Circle()
+                    .trim(from: 0, to: fraction)
+                    .stroke(color, style: StrokeStyle(lineWidth: 7, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                    .animation(.spring(response: 0.5, dampingFraction: 1), value: fraction)
+                VStack(spacing: -1) {
+                    Text("\(max(left, 0))")
+                        .font(.system(.subheadline, design: .rounded).weight(.bold))
+                        .monospacedDigit()
+                        .contentTransition(.numericText())
+                    Text("left").font(.system(size: 9)).foregroundStyle(.secondary)
+                }
+            }
+            .frame(height: 56)
+            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+            Text("\(Int(eaten.rounded())) / \(Int(target)) g")
+                .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
+        .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(title), \(Int(eaten.rounded())) of \(Int(target)) grams")
     }
 }
 
@@ -212,7 +300,7 @@ struct WeekStrip: View {
                 let isSelected = DayStats.sameDay(day, selected)
                 let logged = meals.contains { DayStats.sameDay($0.date, day) }
                 Button {
-                    withAnimation(.snappy) { selected = day }
+                    withAnimation(.spring(response: 0.3, dampingFraction: 1)) { selected = day }
                 } label: {
                     VStack(spacing: 6) {
                         Text(day.formatted(.dateTime.weekday(.narrow))).font(.caption2).foregroundStyle(isSelected ? .white : .secondary)
@@ -221,9 +309,11 @@ struct WeekStrip: View {
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
-                    .background(isSelected ? Color.accentColor : Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .background(isSelected ? Color.accentColor : Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 12, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .sensoryFeedback(.selection, trigger: isSelected)
             }
         }
     }

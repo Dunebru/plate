@@ -11,6 +11,7 @@ enum CameraMode: Hashable {
 /// Camera preview with shutter and library picker, then the analyzing state.
 struct CameraFlowView: View {
     var mode: CameraMode
+    var context: FoodAnalyzer.Context? = nil
     var onResult: (AnalyzedMeal, UIImage?) -> Void
     @StateObject private var camera = CameraController()
     @State private var pickerItem: PhotosPickerItem?
@@ -130,7 +131,7 @@ struct CameraFlowView: View {
         analyzing = true
         Task {
             do {
-                let analyzer = FoodAnalyzer()
+                let analyzer = FoodAnalyzer(context: context)
                 let meal = mode == .food ? try await analyzer.analyzePhoto(image, hint: hint) : try await analyzer.analyzeLabel(image)
                 analyzing = false
                 onResult(meal, image)

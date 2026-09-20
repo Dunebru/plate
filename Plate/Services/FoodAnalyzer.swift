@@ -29,6 +29,30 @@ struct AnalyzedMeal: Equatable {
 /// Builds prompts for the three model-backed flows: meal photo, nutrition label photo, and text description.
 struct FoodAnalyzer {
     var client = AIClient()
+    /// Foods the owner never eats and the way they eat, so the estimate does not guess a chicken
+    /// breast onto a vegan plate.
+    var context: Context? = nil
+
+    struct Context: Equatable {
+        var diet: DietStyle
+        var avoids: [String]
+
+        init(profile: Profile) {
+            diet = profile.diet
+            avoids = profile.avoids
+        }
+
+        /// Appended to the request. Kept short: it is a hint, not a rule, and the photo still wins.
+        var promptLine: String {
+            var parts: [String] = []
+            if diet != .balanced { parts.append("They eat \(diet.label.lowercased()).") }
+            if !avoids.isEmpty { parts.append("They do not eat: \(avoids.joined(separator: ", ")).") }
+            guard !parts.isEmpty else { return "" }
+            return " Context about this person, useful only for choosing between equally likely foods, never for overriding what is plainly in the photo: " + parts.joined(separator: " ")
+        }
+    }
+
+    private var contextLine: String { context?.promptLine ?? "" }
 
     static let system = """
     You are a careful registered dietitian estimating the nutrition of a single meal for a food log. \
@@ -87,6 +111,7 @@ struct FoodAnalyzer {
         if !hint.trimmingCharacters(in: .whitespaces).isEmpty {
             text += " The user adds: \(hint)"
         }
+        text += contextLine
         let data = try await client.structured(system: Self.system, content: .init(text: text, image: image), schema: Self.mealSchema)
         return try Self.parse(data, source: .photo)
     }
@@ -102,7 +127,7 @@ struct FoodAnalyzer {
     }
 
     func analyzeDescription(_ description: String) async throws -> AnalyzedMeal {
-        let text = "Estimate the nutrition of this meal from the user's description: \(description)"
+        let text = "Estimate the nutrition of this meal from the user's description: \(description)" + contextLine
         let data = try await client.structured(system: Self.system, content: .init(text: text), schema: Self.mealSchema)
         return try Self.parse(data, source: .describe)
     }

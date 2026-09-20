@@ -37,15 +37,34 @@ Cal AI, MyFitnessPal Premium, and the other photo trackers charge $50 to $80 a y
 
 ## Features
 
+### Logging
 - **Scan food**: one photo becomes a list of components with portions, calories, protein, carbs, fat, fiber, sugar, and sodium. Hidden oil and sauces are counted
 - **Fix results**: tell it "that was brown rice, about two cups" and the whole meal is re-estimated around your correction. Every portion is a stepper, and totals always follow the items
 - **Barcode and label**: packaged food from Open Food Facts, or photograph the nutrition facts panel and let the model read it
 - **Describe**: type "two eggs, sourdough with butter, black coffee"
 - **Saved foods and search**: re-log anything in two taps, create custom foods, search Open Food Facts by name
-- **Targets that make sense**: Mifflin-St Jeor resting energy, activity multiplier, your chosen pace, protein by body weight. Edit any number
-- **Reality check**: after two weeks, Plate compares what you logged with what the scale did and tells you your real maintenance calories
-- **Apple Health**: every meal is written as dietary energy and nutrients (edits and deletes sync too). Steps, active energy, and weight are read back. Optional workout calorie add-back and calorie rollover
-- **Progress**: weight trend against your goal, calorie history with the target line, weekly averages, streak
+- **Knows how you eat**: your diet and the foods you never touch are given to the analyzer, so it does not put chicken on a vegan plate
+
+### Targets worth trusting
+- **Resting burn from lean mass** when you have measured your body fat, and Mifflin-St Jeor when you have not. Two people at the same weight do not burn the same
+- **Everyday movement and training counted separately**, so a desk job with four gym sessions is not confused with being on your feet all day
+- **A pace that is capped for your body**. Lean people are held to a slower deficit than heavy people, because past a certain speed the weight coming off is muscle
+- **Macros with floors**: protein against lean mass, enough fat for hormones, carbs for training, fiber at 14 g per 1,000 calories
+- **Four goals**: lose fat, maintain, build muscle, or recomposition, each with its own arithmetic
+- **Uneven days**: eat more on training days or at the weekend, with the same weekly total
+
+### Your body, not just your weight
+- **Body fat from a tape measure** with the US Navy method, plus lean mass, fat mass, FFMI, and waist to height
+- **Measurements over time** for waist, chest, hips, neck, arms, thighs, and calves, each with a chart and a tip on where to put the tape
+- **Progress photos** kept on the phone
+- **Focus areas**: pick the parts you want to change and get honest guidance for each, including what training can do and what only fat loss can
+
+### Knowing whether it is working
+- **A trend line, not the scale**. Daily weight is mostly water. Plate smooths the readings and carries the slope, so the line does not lag a real change the way a moving average does
+- **Your real maintenance calories**, measured from what you logged against what the trend did, and blended toward the prediction only as far as your logging record deserves
+- **A verdict** that compares your actual rate with the plan and says what to change
+- **A forecast that flattens**, because burn falls as you get lighter. Straight line predictions always overpromise
+- **Apple Health**: every meal written as dietary energy and nutrients (edits and deletes sync too). Steps, active energy, and weight read back
 - **Export**: your whole log as CSV
 
 ## Install
@@ -72,15 +91,21 @@ Requires iOS 18 or newer. Photo, label, and description logging need an API key,
 1. Answer the onboarding questions. Plate shows the plan it computed and why.
 2. Tap the plus. Scan a plate, a barcode, or a label, or describe the meal.
 3. Check the portions on the review screen. Correct anything wrong, then Log.
-4. Log your weight a few times a week on the Progress tab. After two weeks the reality check tells you if the target needs to move.
+4. Log your weight a few times a week on the Progress tab. After two weeks Plate can measure your real maintenance calories and offer to move the target.
+5. Take a tape measure to yourself every few weeks on the Body tab. Waist and weight together tell you far more than either alone.
 
 ## How the numbers are made
 
-- Resting energy: Mifflin-St Jeor. Maintenance: resting times 1.2 to 1.9 depending on activity.
-- Goal: 7,700 kcal per kilogram, spread over the week at the pace you pick. Floors at 1,500 kcal (men) and 1,200 kcal (women).
-- Protein: 1.8 g per kg when losing or gaining, 1.6 g when maintaining, capped at 40 percent of calories. Fat: 28 percent of calories. Carbs: the rest.
-- Photo estimates: the model lists each component with a portion and per-unit nutrients from USDA-style reference values. Totals are summed on the phone, so changing a portion changes everything.
-- Reality check: implied maintenance equals average intake minus the calories represented by your weight change over the period. Needs 14 days, 10 logged days, and two weigh-ins.
+- **Resting burn**: Katch-McArdle from lean mass when a body fat figure exists, Mifflin-St Jeor otherwise.
+- **Daily burn**: resting burn times a movement factor for life outside workouts, plus the measured cost of your training. Training uses MET values net of rest, because resting burn is already counted once.
+- **Pace**: capped at 0.6 to 1.1 percent of body weight a week for fat loss depending on how lean you are, and at what training age allows for muscle gain. The deficit never exceeds a quarter of your daily burn, and never drops below 1,500 kcal for men or 1,200 for women.
+- **Macros**: protein per kilogram of lean mass when known and per kilogram of body weight otherwise, more on a plant based diet. Fat at 28 percent of calories with a floor for hormones, carbs taking the rest, fiber at 14 g per 1,000 calories.
+- **Body fat**: the US Navy tape method, which lands within about three to four points of a DEXA scan. BMI is only a fallback and is never allowed to drive the calorie target.
+- **Weight trend**: the readings are smoothed with a level and a slope, so the line does not trail a real change. The rate you see is a least squares fit across three weeks of readings, not the difference between two days.
+- **Measured maintenance**: what you ate minus what the trend did, over the last four weeks, blended toward the prediction according to how completely you logged. Needs 14 days and 10 logged days, and is discarded when the numbers say the log is wrong rather than the metabolism.
+- **Forecast**: simulated a week at a time, recomputing burn as body mass falls and applying up to a tenth of metabolic adaptation, which is why the curve flattens instead of running straight.
+
+Every formula is cited in the app under Settings, Sources.
 
 ## FAQ
 
@@ -95,6 +120,18 @@ It does not. Turn it off in Settings and everything stays local to the app. With
 
 **Can I use it without a key at all?**
 Yes. Barcodes, search, saved foods, and custom foods never touch the model.
+
+**Can I target belly fat, or chest fat?**
+No, and nothing can. Training an area builds the muscle under the fat, which changes the shape, but the fat leaves from everywhere at once in an order your genetics decide. Studies that trained one limb hard for weeks found the fat came off the whole body. Plate gives honest per area guidance instead of a promise it cannot keep.
+
+**How accurate is the tape measure body fat?**
+Within about three to four points of a DEXA scan, which is not good enough to quote as a fact but is plenty to watch a trend. Measure at the same time of day, first thing, and care about the direction rather than the number.
+
+**Why does the forecast curve flatten?**
+Because a lighter body burns less, and burn falls by slightly more than size alone explains. Holding the same calories means the gap between burn and intake narrows every week. Any app drawing you a straight line is overpromising.
+
+**Why does it ask so many questions?**
+Because every answer sharpens a number. Sex, age, height and weight set the resting burn; body fat replaces that estimate with a better one; movement and training set the daily burn; goal and pace set the deficit; diet sets the macro split. You can skip anything, and every answer is editable in Settings afterwards.
 
 ## Build from source
 
@@ -114,4 +151,4 @@ Plate is a plain SwiftUI app: SwiftData for storage, Swift Charts, HealthKit, Vi
 ## Acknowledgements
 
 - [Open Food Facts](https://world.openfoodfacts.org) for the product database, ODbL
-- Mifflin MD, St Jeor ST, et al. A new predictive equation for resting energy expenditure in healthy individuals. Am J Clin Nutr 1990
+- Every formula, from the resting burn equations to the body fat method and the rate of loss caps, is listed with its source in the app under Settings, Sources
