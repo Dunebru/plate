@@ -84,6 +84,9 @@ struct SettingsView: View {
                         case .failed(let why): Text(why).font(.caption).foregroundStyle(.red).lineLimit(2)
                         }
                     }
+                    if provider == .gemini, let active = GeminiClient.rememberedModel {
+                        LabeledContent("Model in use", value: active)
+                    }
                     if provider == .anthropic {
                         Picker("Model", selection: $model) {
                             ForEach(ClaudeClient.models, id: \.id) { m in

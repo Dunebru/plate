@@ -111,8 +111,9 @@ struct OpenFoodFacts {
                                fat: num("fat_100g"), fiber: num("fiber_100g"), sugar: num("sugars_100g"),
                                sodium: num("sodium_100g") * 1000)
         var servingGrams: Double? = nil
-        if let q = p["serving_quantity"] as? Double, q > 0 { servingGrams = q }
-        else if let q = p["serving_quantity"] as? String, let d = Double(q), d > 0 { servingGrams = d }
+        let rawServing = p["serving_quantity"]
+        let serving = (rawServing as? Double) ?? (rawServing as? Int).map(Double.init) ?? (rawServing as? String).flatMap { Double($0) }
+        if let serving, serving > 0 { servingGrams = serving }
         let servingSize = (p["serving_size"] as? String) ?? ""
         let servingLabel = servingSize.isEmpty ? (servingGrams.map { "serving (\(Int($0)) g)" } ?? "100 g") : servingSize
         let image = (p["image_front_small_url"] as? String).flatMap(URL.init(string:))

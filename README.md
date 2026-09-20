@@ -19,7 +19,7 @@
   <img src="docs/screenshot.png" width="900" alt="Plate screens">
 </p>
 
-Cal AI, MyFitnessPal Premium, and the other photo trackers charge $50 to $80 a year, keep your food photos on their servers, and hide the barcode scanner behind a paywall. Plate does the same job with your own model API key (Google Gemini has a free tier that covers about 250 photos a day; Anthropic is the paid option at about three cents a photo), Open Food Facts for barcodes, and Apple Health for everything else. Your log lives in SwiftData on the phone and in Health, nowhere else.
+Cal AI, MyFitnessPal Premium, and the other photo trackers charge $50 to $80 a year, keep your food photos on their servers, and hide the barcode scanner behind a paywall. Plate does the same job with your own model API key (Google Gemini has a free tier of about 20 scans a day per model, and Plate moves to the next Flash model when one runs out; Anthropic is the paid option at about three cents a photo), Open Food Facts for barcodes, and Apple Health for everything else. Your log lives in SwiftData on the phone and in Health, nowhere else.
 
 <details>
 <summary>Table of contents</summary>
@@ -88,7 +88,7 @@ Requires iOS 18 or newer. Photo, label, and description logging need an API key,
 Usually within 10 to 30 percent, worse for stews, curries, and restaurant food where oil is invisible. That is the same range as every photo tracker, which is why the review screen exists. Consistency beats precision: the weekly trend and the reality check are what you should trust.
 
 **Which model does it use?**
-Gemini 2.5 Flash by default, which is free for personal volumes. Switch to Anthropic in Settings for Claude Opus 5 or Sonnet 5. Requests go straight from the phone to the provider with your key. Nothing goes through any other server.
+Google Gemini Flash by default, which is free for personal volumes. Plate picks the current Flash model on its own, so it keeps working when Google retires an older one. Switch to Anthropic in Settings for Claude Opus 5 or Sonnet 5. Requests go straight from the phone to the provider with your key. Nothing goes through any other server.
 
 **Why does it need Apple Health?**
 It does not. Turn it off in Settings and everything stays local to the app. With it on, other apps and your watch see your nutrition, and Plate can add workout calories to the budget.

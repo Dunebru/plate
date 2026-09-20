@@ -76,10 +76,11 @@ struct ClaudeClient {
     }
 
     static func downscaled(_ image: UIImage, maxSide: CGFloat = 1280) -> UIImage {
-        let size = image.size
+        // Work in pixels: a 3x image that is small in points is still a large upload.
+        let size = CGSize(width: image.size.width * image.scale, height: image.size.height * image.scale)
         let scale = min(1, maxSide / max(size.width, size.height))
         guard scale < 1 else { return image }
-        let target = CGSize(width: size.width * scale, height: size.height * scale)
+        let target = CGSize(width: (size.width * scale).rounded(), height: (size.height * scale).rounded())
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         return UIGraphicsImageRenderer(size: target, format: format).image { _ in
