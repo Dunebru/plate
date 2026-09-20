@@ -882,3 +882,37 @@ final class ImagePrepTests: XCTestCase {
         XCTAssertEqual(pixels(AIClient.downscaled(image(points: 800, scale: 1))), 800, accuracy: 1)
     }
 }
+
+final class PortionScalingTests: XCTestCase {
+    private func meal() -> AnalyzedMeal {
+        AnalyzedMeal(name: "Test",
+                     items: [
+                        AnalyzedMeal.Item(name: "Rice", quantity: 1.5, unit: "cup", gramsPerUnit: 158,
+                                          base: Nutrients(calories: 205, protein: 4, carbs: 45, fat: 0.4, fiber: 0.6, sugar: 0, sodium: 2),
+                                          confidence: 0.5),
+                        AnalyzedMeal.Item(name: "Chicken", quantity: 200, unit: "g", gramsPerUnit: 1,
+                                          base: Nutrients(calories: 1.65, protein: 0.31, carbs: 0, fat: 0.036, fiber: 0, sugar: 0, sodium: 0.74),
+                                          confidence: 0.8),
+                     ],
+                     notes: "", healthScore: 7, confidence: 0.55, source: .photo)
+    }
+
+    func testScalingEveryItemMovesTheTotalByTheSameFactor() {
+        var m = meal()
+        let before = m.totals.calories
+        for index in m.items.indices {
+            m.items[index].quantity = (m.items[index].quantity * 0.5 * 100).rounded() / 100
+        }
+        XCTAssertEqual(m.totals.calories, before * 0.5, accuracy: 0.5)
+        XCTAssertEqual(m.items[0].quantity, 0.75, accuracy: 0.001)
+        XCTAssertEqual(m.items[1].quantity, 100, accuracy: 0.001)
+    }
+
+    func testEveryOfferedScaleIsSensible() {
+        let factors = ResultEditorView.scales.map(\.factor)
+        XCTAssertEqual(factors.count, Set(factors).count, "no duplicate scales")
+        XCTAssertTrue(factors.allSatisfy { $0 >= 0.5 && $0 <= 2 }, "nothing that would make the meal nonsense")
+        XCTAssertTrue(factors.contains(0.5) && factors.contains(2), "halving and doubling are what people reach for")
+        XCTAssertEqual(factors, factors.sorted(), "smallest first so the row reads left to right")
+    }
+}

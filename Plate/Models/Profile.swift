@@ -431,6 +431,9 @@ final class Profile {
     var writeToHealth: Bool = true
     var showBodyTab: Bool = true
     var onboarded: Bool = false
+    /// Set when someone who finished the old, shorter setup says they do not want to answer the
+    /// newer questions yet. Without it the offer would come back on every launch.
+    var dismissedDeeperSetup: Bool = false
 
     init() {}
 
@@ -527,6 +530,11 @@ final class Profile {
     }
 
     var bmi: Double { BodyComposition.bmi(weightKg: weightKg, heightCm: heightCm) }
+
+    /// True for a profile that finished setup before everyday movement and training were asked
+    /// separately. Their targets still run on the old single multiplier, which is the least
+    /// accurate part of the whole calculation, so it is worth offering the newer questions.
+    var needsDeeperSetup: Bool { onboarded && dailyActivityRaw == nil }
 
     var inputs: NutritionMath.Inputs {
         .init(sex: sex, age: age, heightCm: heightCm, weightKg: weightKg,

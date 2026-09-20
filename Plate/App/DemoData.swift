@@ -41,6 +41,14 @@ enum DemoData {
         profile.writeToHealth = false   // no permission prompts while looking at screens
         profile.onboarded = true
         profile.recalculateTargets()
+        // --legacy-profile reproduces someone who finished the older, shorter setup, so the offer
+        // to answer the newer questions can be looked at.
+        if CommandLine.arguments.contains("--legacy-profile") {
+            profile.dailyActivityRaw = nil
+            profile.activity = .light
+            profile.trainingStyle = .none
+            profile.trainingDaysPerWeek = 0
+        }
         context.insert(profile)
 
         let cal = Calendar.current

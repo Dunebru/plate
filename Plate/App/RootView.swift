@@ -11,10 +11,12 @@ struct RootView: View {
     var body: some View {
         Group {
             if let profile = profiles.first {
-                if profile.onboarded {
-                    MainTabView(profile: profile)
-                } else {
+                if !profile.onboarded {
                     OnboardingView(profile: profile)
+                } else if profile.needsDeeperSetup, !profile.dismissedDeeperSetup {
+                    DeeperSetupView(profile: profile) { profile.onboarded = false }
+                } else {
+                    MainTabView(profile: profile)
                 }
             } else {
                 Color(.systemGroupedBackground).ignoresSafeArea()

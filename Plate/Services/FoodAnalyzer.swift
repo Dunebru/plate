@@ -122,7 +122,8 @@ struct FoodAnalyzer {
         Produce exactly one item whose unit is "serving", quantity 1, grams_per_unit equal to the stated serving size in grams \
         (estimate if only volume is given), and the per-serving nutrients exactly as printed. Name the product if visible.
         """
-        let data = try await client.structured(system: Self.system, content: .init(text: text, image: image), schema: Self.mealSchema)
+        // A nutrition panel is small print. Sending it sharper costs no extra tokens and reads better.
+        let data = try await client.structured(system: Self.system, content: .init(text: text, image: image, imageMaxSide: 1536), schema: Self.mealSchema)
         return try Self.parse(data, source: .label)
     }
 

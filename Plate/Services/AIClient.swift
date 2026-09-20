@@ -60,6 +60,9 @@ struct AIClient {
     struct Content {
         var text: String
         var image: UIImage?
+        /// Longest edge of the uploaded image. Gemini charges the same tokens for anything above
+        /// roughly a thousand pixels, so small print is worth sending sharper.
+        var imageMaxSide: CGFloat = 1280
     }
 
     var provider: AIProvider = .current
@@ -67,7 +70,7 @@ struct AIClient {
     func structured(system: String, content: Content, schema: [String: Any], maxTokens: Int = 4000) async throws -> Data {
         switch provider {
         case .gemini: return try await GeminiClient().structured(system: system, content: content, schema: schema, maxTokens: maxTokens)
-        case .anthropic: return try await ClaudeClient().structured(system: system, content: .init(text: content.text, image: content.image), schema: schema, maxTokens: maxTokens)
+        case .anthropic: return try await ClaudeClient().structured(system: system, content: .init(text: content.text, image: content.image, imageMaxSide: content.imageMaxSide), schema: schema, maxTokens: maxTokens)
         }
     }
 
@@ -187,7 +190,7 @@ struct GeminiClient {
         guard let key = apiKey, !key.isEmpty else { throw AIError.missingKey(.gemini) }
 
         var parts: [[String: Any]] = []
-        if let image = content.image, let jpeg = ClaudeClient.downscaled(image).jpegData(compressionQuality: 0.82) {
+        if let image = content.image, let jpeg = ClaudeClient.downscaled(image, maxSide: content.imageMaxSide).jpegData(compressionQuality: 0.82) {
             parts.append(["inline_data": ["mime_type": "image/jpeg", "data": jpeg.base64EncodedString()]])
         }
         parts.append(["text": content.text])

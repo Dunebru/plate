@@ -18,12 +18,51 @@ struct ResultEditorView: View {
 
     private var canFix: Bool { [.photo, .label, .describe].contains(meal.source) }
 
+    /// Scaling every item at once is free, instant, and fixes the thing that is actually wrong most
+    /// of the time, which is how much was on the plate rather than what was on it.
+    static let scales: [(label: String, factor: Double)] = [
+        ("Half", 0.5), ("Three quarters", 0.75), ("A bit more", 1.25), ("Half again", 1.5), ("Double", 2),
+    ]
+
+    /// True when the model itself said it was unsure, or when it hedged on any single item.
+    private var isUnsure: Bool {
+        if let overall = meal.confidence, overall < 0.7 { return true }
+        return meal.items.contains { ($0.confidence ?? 1) < 0.6 }
+    }
+
+    private func scaleAll(_ factor: Double) {
+        for index in meal.items.indices {
+            meal.items[index].quantity = (meal.items[index].quantity * factor * 100).rounded() / 100
+        }
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 if let image {
                     Section {
                         Image(uiImage: image).resizable().scaledToFill().frame(height: 200).clipped().listRowInsets(EdgeInsets())
+                    }
+                }
+                if canFix, isUnsure {
+                    Section {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("Check the portion", systemImage: "questionmark.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.orange)
+                            Text("The food is usually right. How much of it there was is the guess, and it is the number that moves your day. Tap to scale the whole meal, or say what was different below.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                            HStack(spacing: 8) {
+                                ForEach(Self.scales, id: \.label) { scale in
+                                    Button(scale.label) { scaleAll(scale.factor) }
+                                        .font(.footnote.weight(.semibold))
+                                        .buttonStyle(.bordered)
+                                        .buttonBorderShape(.capsule)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 2)
                     }
                 }
                 Section {

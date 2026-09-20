@@ -18,6 +18,7 @@ struct ClaudeClient {
     struct Content {
         var text: String
         var image: UIImage?
+        var imageMaxSide: CGFloat = 1280
     }
 
     /// Sends one user turn and returns the JSON text the model produced for `schema`.
@@ -25,7 +26,7 @@ struct ClaudeClient {
         guard let key = apiKey, !key.isEmpty else { throw AIError.missingKey(.anthropic) }
 
         var blocks: [[String: Any]] = []
-        if let image = content.image, let jpeg = Self.downscaled(image).jpegData(compressionQuality: 0.82) {
+        if let image = content.image, let jpeg = Self.downscaled(image, maxSide: content.imageMaxSide).jpegData(compressionQuality: 0.82) {
             blocks.append([
                 "type": "image",
                 "source": ["type": "base64", "media_type": "image/jpeg", "data": jpeg.base64EncodedString()],
