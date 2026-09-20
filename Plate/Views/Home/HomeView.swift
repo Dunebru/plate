@@ -79,6 +79,11 @@ struct HomeView: View {
                 Text("\(abs(remaining))")
                     .font(.system(size: 46, weight: .bold, design: .rounded))
                     .monospacedDigit()
+                    // Large numerals read too far apart, and a grouped four digit figure plus the
+                    // ring fills the width of the narrowest phone, so it shrinks rather than clips.
+                    .tracking(-1)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
                     .foregroundStyle(remaining >= 0 ? Color.primary : Color.red)
                 HStack(spacing: 10) {
@@ -102,6 +107,9 @@ struct HomeView: View {
             Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
+        .lineLimit(1)
+        .minimumScaleFactor(0.8)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     // MARK: Macros
