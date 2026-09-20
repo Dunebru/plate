@@ -35,8 +35,11 @@ struct FoodAnalyzer {
     Break the meal into its components. For each component give the portion you believe was eaten \
     (quantity and a natural unit such as cup, piece, slice, tbsp, or g), your best estimate of grams per unit, \
     and the nutrients PER ONE UNIT, not for the whole portion. Calories in kcal, protein, carbs, fat, fiber and \
-    sugar in grams, sodium in milligrams. Account for cooking oil, butter, dressings, and sauces even when they \
-    are not visible; restaurant portions are larger and oilier than home cooking. Use USDA-style reference values. \
+    sugar in grams, sodium in milligrams. List every component separately, including each fat source such as \
+    butter, oil, cheese, sour cream, guacamole, dressing, and sauce, with its own realistic portion, even when it \
+    is not visible; restaurant portions are larger and oilier than home cooking. Use USDA-style reference values, \
+    and for named restaurant or packaged items use the published nutrition values. When a portion is uncertain, \
+    choose the larger plausible amount, because people underestimate what they eat. \
     If the user supplies a correction, treat it as ground truth and re-estimate everything else around it. \
     Report confidence from 0 to 1 per item and overall. meal_name is short, like "Chicken burrito bowl". \
     health_score is 1 to 10 for how well this meal fits a balanced diet. notes is one plain sentence about \

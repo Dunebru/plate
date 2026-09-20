@@ -17,7 +17,7 @@ enum AIProvider: String, CaseIterable, Identifiable {
     var host: String { self == .gemini ? "generativelanguage.googleapis.com" : "api.anthropic.com" }
     var consoleHint: String {
         switch self {
-        case .gemini: return "Free: get a key at aistudio.google.com. The free tier allows about 20 scans a day per model, and Plate moves to the next model when one runs out. Google may use free tier requests to improve its models."
+        case .gemini: return "Free: get a key at aistudio.google.com. Plate uses Flash-Lite, the fastest and cheapest model. The free tier allows about 20 scans a day per model and Plate moves to the next model when one runs out; with billing on, $10 covers roughly 5,000 scans. Google may use free tier requests to improve its models."
         case .anthropic: return "Paid: get a key at console.anthropic.com. A photo costs about three cents with Claude Opus 5."
         }
     }
@@ -85,7 +85,9 @@ struct AIClient {
 /// list is tried in order, the account's own model list is the last resort, and whichever model
 /// answers is remembered for next time.
 struct GeminiClient {
-    static let preferred = ["gemini-3.6-flash", "gemini-flash-latest", "gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash", "gemini-2.5-flash"]
+    /// Flash-Lite first: about 1.4 s a scan and the cheapest per token, and it matched reference values
+    /// on everyday foods. The full size models are the backup for when Lite is busy or out of quota.
+    static let preferred = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.5-flash"]
     static let modelDefaultsKey = "gemini.model"
     /// Thinking tokens the service reported for the latest answer. Zero means the speed hint took effect.
     nonisolated(unsafe) static var lastThoughtTokens = 0
@@ -153,28 +155,31 @@ struct GeminiClient {
         return .fatal
     }
 
-    /// Picks general purpose Flash models out of a ListModels answer, newest version first.
+    /// Picks general purpose Flash models out of a ListModels answer: Lite first because it is the
+    /// fastest and cheapest, newest version first within each group.
     static func rankDiscovered(_ models: [(name: String, methods: [String])]) -> [String] {
-        let skip = ["lite", "image", "tts", "live", "audio", "embedding", "native", "preview", "exp", "omni"]
+        let skip = ["image", "tts", "live", "audio", "embedding", "native", "preview", "exp", "omni"]
         func version(_ n: String) -> Double {
             let digits = n.replacingOccurrences(of: "gemini-", with: "").prefix { $0.isNumber || $0 == "." }
             return Double(digits) ?? 0
         }
-        return models
+        let usable = models
             .filter { $0.methods.contains("generateContent") }
             .map { $0.name.replacingOccurrences(of: "models/", with: "") }
             .filter { n in n.hasPrefix("gemini-") && n.contains("flash") && !skip.contains { n.contains($0) } }
-            .sorted { version($0) > version($1) }
+        let lite = usable.filter { $0.contains("lite") }.sorted { version($0) > version($1) }
+        let full = usable.filter { !$0.contains("lite") }.sorted { version($0) > version($1) }
+        return lite + full
     }
 
-    /// Reading a plate does not need long deliberation, and thinking is most of the wait: the same
-    /// photo takes about six seconds with it and about two without, with the same answer.
-    static let thinkingConfig: [String: Any] = ["thinkingBudget": 0]
+    /// Reading a plate does not need long deliberation, and thinking is most of the wait. "minimal" is
+    /// the one setting every current Flash and Flash-Lite model accepts; Lite rejects a zero budget.
+    static let thinkingConfig: [String: Any] = ["thinkingLevel": "minimal"]
 
-    /// True when the API refused the thinking hint itself, so the same request is worth one try without it.
-    static func isThinkingRejected(status: Int, message: String) -> Bool {
-        status == 400 && message.lowercased().contains("thinking")
-    }
+    /// A model that does not take the thinking setting often answers with a bare "invalid argument",
+    /// so any 400 sent with the hint is worth exactly one try without it. A 400 about the key is
+    /// reported as 401 before it gets here.
+    static func isThinkingRejected(status: Int, message: String) -> Bool { status == 400 }
 
     private static func hintRejectedKey(_ model: String) -> String { "gemini.noThinkingHint.\(model)" }
 
@@ -252,7 +257,10 @@ struct GeminiClient {
         if !UserDefaults.standard.bool(forKey: rejectedKey) {
             do { return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: true) }
             catch AIError.http(let status, let message) where Self.isThinkingRejected(status: status, message: message) {
+                // Only blame the hint if the same request succeeds without it.
+                let data = try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false)
                 UserDefaults.standard.set(true, forKey: rejectedKey)
+                return data
             }
         }
         return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false)

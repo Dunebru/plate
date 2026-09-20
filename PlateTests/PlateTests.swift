@@ -146,18 +146,24 @@ final class GeminiModelTests: XCTestCase {
             (name: "models/gemini-4.0-flash", methods: ["embedContent"]),
             (name: "models/text-embedding-004", methods: ["embedContent"]),
         ])
-        XCTAssertEqual(ranked, ["gemini-3.8-flash", "gemini-3.5-flash"])
+        XCTAssertEqual(ranked, ["gemini-3.8-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"])
     }
 
-    func testThinkingIsSwitchedOff() {
-        XCTAssertEqual(GeminiClient.thinkingConfig["thinkingBudget"] as? Int, 0)
+    func testThinkingIsSetToMinimal() {
+        XCTAssertEqual(GeminiClient.thinkingConfig["thinkingLevel"] as? String, "minimal")   // Lite rejects a zero budget
         XCTAssertEqual(GeminiClient.thinkingConfig.count, 1)   // the API rejects a budget and a level together
     }
 
-    func testOnlyAThinkingComplaintDropsTheHint() {
-        XCTAssertTrue(GeminiClient.isThinkingRejected(status: 400, message: "Unknown name \"thinkingLevel\" at generation_config.thinking_config"))
-        XCTAssertFalse(GeminiClient.isThinkingRejected(status: 400, message: "Invalid JSON payload received"))
-        XCTAssertFalse(GeminiClient.isThinkingRejected(status: 404, message: "thinking model not found"))
+    func testAny400IsWorthOneTryWithoutTheSetting() {
+        XCTAssertTrue(GeminiClient.isThinkingRejected(status: 400, message: "Request contains an invalid argument."))
+        XCTAssertTrue(GeminiClient.isThinkingRejected(status: 400, message: "This model only works in thinking mode."))
+        XCTAssertFalse(GeminiClient.isThinkingRejected(status: 404, message: "not found"))
+        XCTAssertFalse(GeminiClient.isThinkingRejected(status: 429, message: "quota"))
+    }
+
+    func testLiteIsTriedFirst() {
+        XCTAssertTrue(GeminiClient.preferred[0].contains("lite"))
+        XCTAssertTrue(GeminiClient.preferred.contains("gemini-3.6-flash"), "full size backup for when Lite is busy")
     }
 }
 
@@ -189,6 +195,7 @@ final class StubGemini: URLProtocol {
 }
 
 final class GeminiFallbackTests: XCTestCase {
+    let first = GeminiClient.preferred[0], second = GeminiClient.preferred[1]
     let ok = #"{"candidates":[{"finishReason":"STOP","content":{"parts":[{"text":"{\"ok\":true}"}]}}]}"#
     func error(_ m: String) -> String { #"{"error":{"message":"\#(m)"}}"# }
     let schema: [String: Any] = ["type": "object", "properties": ["ok": ["type": "boolean"]], "required": ["ok"]]
@@ -203,23 +210,40 @@ final class GeminiFallbackTests: XCTestCase {
 
     func testRetiredModelThenRejectedHintThenSuccess() async throws {
         StubGemini.handler = { [self] model, hinted in
-            if model == "gemini-3.6-flash" { return (404, error("This model models/gemini-3.6-flash is no longer available to new users.")) }
+            if model == first { return (404, error("This model is no longer available to new users.")) }
             if hinted { return (400, error("This model only works in thinking mode.")) }
             return (200, ok)
         }
         var client = GeminiClient(); client.keyOverride = "test"
         let data = try await client.structured(system: "s", content: .init(text: "ping"), schema: schema, maxTokens: 200)
         XCTAssertEqual(String(decoding: data, as: UTF8.self), #"{"ok":true}"#)
-        XCTAssertEqual(StubGemini.log.map(\.model), ["gemini-3.6-flash", "gemini-flash-latest", "gemini-flash-latest"])
+        XCTAssertEqual(StubGemini.log.map(\.model), [first, second, second])
         XCTAssertEqual(StubGemini.log.map(\.hinted), [true, true, false])
-        XCTAssertEqual(GeminiClient.rememberedModel, "gemini-flash-latest")
+        XCTAssertEqual(GeminiClient.rememberedModel, second)
 
         // The next scan goes straight to the working model and skips the hint it learned is refused.
         StubGemini.log = []
         _ = try await client.structured(system: "s", content: .init(text: "ping"), schema: schema, maxTokens: 200)
         XCTAssertEqual(StubGemini.log.count, 1)
-        XCTAssertEqual(StubGemini.log[0].model, "gemini-flash-latest")
+        XCTAssertEqual(StubGemini.log[0].model, second)
         XCTAssertFalse(StubGemini.log[0].hinted)
+    }
+
+    func testRealBadRequestStopsAfterOneRetryAndKeepsTheHint() async {
+        StubGemini.handler = { [self] _, _ in (400, error("Request contains an invalid argument.")) }
+        var client = GeminiClient(); client.keyOverride = "test"
+        do { _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200); XCTFail("should throw") }
+        catch AIError.http(let code, _) { XCTAssertEqual(code, 400) } catch { XCTFail("wrong error \(error)") }
+        XCTAssertEqual(StubGemini.log.map(\.hinted), [true, false], "one try with the setting, one without, then stop")
+        XCTAssertFalse(UserDefaults.standard.dictionaryRepresentation().keys.contains { $0.hasPrefix("gemini.noThinkingHint") }, "the setting was not the problem, so keep using it")
+    }
+
+    func testBareInvalidArgumentFromTheHintIsRecovered() async throws {
+        StubGemini.handler = { [self] _, hinted in hinted ? (400, error("Request contains an invalid argument.")) : (200, ok) }
+        var client = GeminiClient(); client.keyOverride = "test"
+        _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)
+        XCTAssertEqual(StubGemini.log.map(\.hinted), [true, false])
+        XCTAssertEqual(GeminiClient.rememberedModel, first)
     }
 
     func testBadKeyStopsImmediately() async {
@@ -243,24 +267,24 @@ final class GeminiFallbackTests: XCTestCase {
     }
 
     func testBusyModelUsesTheNextOneButKeepsThePreference() async throws {
-        GeminiClient.rememberedModel = "gemini-3.6-flash"
-        StubGemini.handler = { [self] model, _ in model == "gemini-3.6-flash" ? (503, error("This model is currently experiencing high demand.")) : (200, ok) }
+        GeminiClient.rememberedModel = first
+        StubGemini.handler = { [self] model, _ in model == first ? (503, error("This model is currently experiencing high demand.")) : (200, ok) }
         var client = GeminiClient(); client.keyOverride = "test"
         _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)
-        XCTAssertEqual(StubGemini.log.map(\.model), ["gemini-3.6-flash", "gemini-flash-latest"])
-        XCTAssertEqual(GeminiClient.rememberedModel, "gemini-3.6-flash")
+        XCTAssertEqual(StubGemini.log.map(\.model), [first, second])
+        XCTAssertEqual(GeminiClient.rememberedModel, first)
     }
 
     func testBusyModelIsSkippedOnTheNextScan() async throws {
-        StubGemini.handler = { [self] model, _ in model == "gemini-3.6-flash" ? (429, error("You exceeded your current quota. Please retry in 40.5s.")) : (200, ok) }
+        StubGemini.handler = { [self] model, _ in model == first ? (429, error("You exceeded your current quota. Please retry in 40.5s.")) : (200, ok) }
         var client = GeminiClient(); client.keyOverride = "test"
         _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)
-        XCTAssertEqual(StubGemini.log.map(\.model), ["gemini-3.6-flash", "gemini-flash-latest"])
+        XCTAssertEqual(StubGemini.log.map(\.model), [first, second])
         StubGemini.log = []
         _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)
-        XCTAssertEqual(StubGemini.log.map(\.model), ["gemini-flash-latest"], "the busy model should not be asked again so soon")
-        XCTAssertTrue(GeminiClient.isCoolingDown("gemini-3.6-flash"))
-        XCTAssertFalse(GeminiClient.isCoolingDown("gemini-3.6-flash", now: Date().addingTimeInterval(41)))
+        XCTAssertEqual(StubGemini.log.map(\.model), [second], "the busy model should not be asked again so soon")
+        XCTAssertTrue(GeminiClient.isCoolingDown(first))
+        XCTAssertFalse(GeminiClient.isCoolingDown(first, now: Date().addingTimeInterval(41)))
     }
 
     func testCooldownLengths() {
@@ -281,12 +305,12 @@ final class GeminiFallbackTests: XCTestCase {
     }
 
     func testCoolingDownFavoriteIsNotReplacedForGood() async throws {
-        StubGemini.handler = { [self] model, _ in model == "gemini-3.6-flash" ? (503, error("This model is currently experiencing high demand.")) : (200, ok) }
+        StubGemini.handler = { [self] model, _ in model == first ? (503, error("This model is currently experiencing high demand.")) : (200, ok) }
         var client = GeminiClient(); client.keyOverride = "test"
         _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)   // 3.6 busy, latest answers
         _ = try await client.structured(system: "s", content: .init(text: "x"), schema: schema, maxTokens: 200)   // 3.6 cooling, latest answers first try
         XCTAssertNil(GeminiClient.rememberedModel, "a model that only won because the best one was resting must not become the favorite")
-        XCTAssertEqual(GeminiClient.candidates(remembered: GeminiClient.rememberedModel, now: Date().addingTimeInterval(60)).first, "gemini-3.6-flash")
+        XCTAssertEqual(GeminiClient.candidates(remembered: GeminiClient.rememberedModel, now: Date().addingTimeInterval(60)).first, first)
     }
 
     func testEverythingBusyGivesUpAfterThreeModels() async {
