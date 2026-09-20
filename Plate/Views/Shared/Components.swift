@@ -19,34 +19,68 @@ extension View {
     func card() -> some View { modifier(CardBackground()) }
 }
 
-/// The big ring on the home screen. Fills toward the target and turns red when over.
+/// The ring on the home screen. Fills toward the target and turns red when over.
+///
+/// Everything inside is sized from the ring itself rather than from fixed points, because a four
+/// figure calorie target has to fit the same circle as a three figure one. The number also shrinks
+/// on its own as a last resort, so nothing ever clips.
 struct CalorieRing: View {
     var eaten: Double
     var target: Double
     var lineWidth: CGFloat = 14
+    /// Animates the fill up from empty the first time the ring appears.
+    @State private var shown: Double = 0
 
     private var fraction: Double { target > 0 ? min(eaten / target, 1) : 0 }
     private var over: Bool { eaten > target && target > 0 }
+    private var remaining: Int { Int((target - eaten).rounded()) }
+    private var headline: String { "\(abs(remaining))" }
+    private var caption: String { over ? "over" : "left" }
+    private var tint: Color { over ? .red : .calories }
 
     var body: some View {
-        ZStack {
-            Circle()
-                .stroke(Color.primary.opacity(0.08), style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-            Circle()
-                .trim(from: 0, to: fraction)
-                .stroke(over ? Color.red : Color.calories, style: StrokeStyle(lineWidth: lineWidth, lineCap: .round))
-                .rotationEffect(.degrees(-90))
-                .animation(.spring(response: 0.6, dampingFraction: 0.9), value: fraction)
-            VStack(spacing: 2) {
-                Text("\(Int(max(target - eaten, 0).rounded()))")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-                    .contentTransition(.numericText())
-                Text(over ? "over by \(Int((eaten - target).rounded()))" : "left")
-                    .font(.footnote.weight(.medium))
-                    .foregroundStyle(over ? .red : .secondary)
+        GeometryReader { geo in
+            let diameter = min(geo.size.width, geo.size.height)
+            let stroke = min(lineWidth, diameter * 0.13)
+            // Keep the text clear of the stroke and of the curve on either side.
+            let inner = diameter - stroke * 2 - diameter * 0.16
+
+            ZStack {
+                Circle()
+                    .stroke(Color.primary.opacity(0.08), style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                Circle()
+                    .trim(from: 0, to: shown)
+                    .stroke(tint, style: StrokeStyle(lineWidth: stroke, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+
+                VStack(spacing: diameter * 0.01) {
+                    Text(headline)
+                        .font(.system(size: diameter * 0.30, weight: .bold, design: .rounded))
+                        .monospacedDigit()
+                        .tracking(diameter * -0.008)     // large numerals read better pulled in
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.4)
+                        .contentTransition(.numericText())
+                        .foregroundStyle(over ? Color.red : Color.primary)
+                    Text(caption)
+                        .font(.system(size: max(10, diameter * 0.095), weight: .medium))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.7)
+                        .foregroundStyle(over ? Color.red : Color.secondary)
+                }
+                .frame(width: inner)
             }
+            .frame(width: diameter, height: diameter)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .aspectRatio(1, contentMode: .fit)
+        .animation(.spring(response: 0.6, dampingFraction: 1), value: shown)
+        .onAppear { shown = fraction }
+        .onChange(of: fraction) { _, new in shown = new }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(over
+            ? "\(abs(remaining)) calories over your target of \(Int(target))"
+            : "\(abs(remaining)) calories left of \(Int(target))")
     }
 }
 

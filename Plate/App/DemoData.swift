@@ -49,6 +49,10 @@ enum DemoData {
             profile.trainingStyle = .none
             profile.trainingDaysPerWeek = 0
         }
+        // --big-target pins a four digit calorie target and leaves today empty, so the ring has to
+        // render its widest possible number with nothing eaten against it.
+        let bigTarget = CommandLine.arguments.contains("--big-target")
+        if bigTarget { profile.calorieTarget = 2640 }
         context.insert(profile)
 
         let cal = Calendar.current
@@ -89,6 +93,7 @@ enum DemoData {
         ]
         for day in stride(from: 27, through: 0, by: -1) {
             guard day % 9 != 5 else { continue }        // a couple of unlogged days
+            guard !(bigTarget && day == 0) else { continue }
             let date = cal.date(byAdding: .day, value: -day, to: today)!
             let count = day % 6 == 0 ? 4 : 3
             for slot in 0..<count {

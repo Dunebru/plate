@@ -160,7 +160,7 @@ struct HomeView: View {
             } else {
                 ForEach(dayMeals) { meal in
                     Button { editing = meal } label: { MealRow(meal: meal) }
-                        .buttonStyle(.plain)
+                        .buttonStyle(PressableStyle())
                         .contextMenu {
                             Button("Copy to today", systemImage: "doc.on.doc") { copy(meal) }
                             Button("Delete", systemImage: "trash", role: .destructive) { delete(meal) }
@@ -181,6 +181,7 @@ struct HomeView: View {
                     .background(Color.accentColor, in: Circle())
                     .shadow(color: Color.accentColor.opacity(0.35), radius: 10, y: 5)
             }
+            .buttonStyle(PressableStyle())
             .accessibilityLabel("Log food")
         }
         .padding(.horizontal, 20)
@@ -213,37 +214,54 @@ struct MacroDial: View {
     var eaten: Double
     var target: Double
     var color: Color
+    @State private var shown: Double = 0
 
     private var fraction: Double { target > 0 ? min(eaten / target, 1) : 0 }
     private var left: Int { Int((target - eaten).rounded()) }
+    private var done: Bool { target > 0 && eaten >= target }
 
     var body: some View {
         VStack(spacing: 8) {
             ZStack {
                 Circle().stroke(color.opacity(0.18), lineWidth: 7)
                 Circle()
-                    .trim(from: 0, to: fraction)
+                    .trim(from: 0, to: shown)
                     .stroke(color, style: StrokeStyle(lineWidth: 7, lineCap: .round))
                     .rotationEffect(.degrees(-90))
-                    .animation(.spring(response: 0.5, dampingFraction: 1), value: fraction)
-                VStack(spacing: -1) {
-                    Text("\(max(left, 0))")
-                        .font(.system(.subheadline, design: .rounded).weight(.bold))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
-                    Text("left").font(.system(size: 9)).foregroundStyle(.secondary)
+                if done {
+                    Image(systemName: "checkmark")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(color)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    VStack(spacing: -1) {
+                        Text("\(max(left, 0))")
+                            .font(.system(.subheadline, design: .rounded).weight(.bold))
+                            .monospacedDigit()
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                            .contentTransition(.numericText())
+                        Text("left").font(.system(size: 9)).foregroundStyle(.secondary)
+                    }
+                    .frame(width: 40)
                 }
             }
             .frame(height: 56)
+            .animation(.spring(response: 0.5, dampingFraction: 1), value: shown)
+            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: done)
+
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             Text("\(Int(eaten.rounded())) / \(Int(target)) g")
                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                .lineLimit(1).minimumScaleFactor(0.7)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 14)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(title), \(Int(eaten.rounded())) of \(Int(target)) grams")
+        .onAppear { shown = fraction }
+        .onChange(of: fraction) { _, new in shown = new }
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(title), \(Int(eaten.rounded())) of \(Int(target)) grams\(done ? ", target reached" : "")")
     }
 }
 
