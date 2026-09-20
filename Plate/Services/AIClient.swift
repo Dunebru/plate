@@ -57,12 +57,31 @@ enum AIError: LocalizedError {
 
 /// Facade the rest of the app talks to. Picks the configured provider.
 struct AIClient {
+    /// How much of the token budget an image is allowed to spend. Measured on 20 September 2026 with
+    /// countTokens: an image costs 1,064 tokens at the default, 540 at medium and 266 at low, and the
+    /// pixel size sent makes no difference to any of them.
+    enum ImageDetail {
+        case low, medium, high
+
+        var geminiValue: String? {
+            switch self {
+            case .low: return "MEDIA_RESOLUTION_LOW"
+            case .medium: return "MEDIA_RESOLUTION_MEDIUM"
+            case .high: return nil          // the API default
+            }
+        }
+    }
+
     struct Content {
         var text: String
         var image: UIImage?
         /// Longest edge of the uploaded image. Gemini charges the same tokens for anything above
-        /// roughly a thousand pixels, so small print is worth sending sharper.
+        /// roughly a thousand pixels, so this only decides how many bytes go up the wire.
         var imageMaxSide: CGFloat = 1280
+        /// Medium halves what an image costs and still leaves plenty to judge a plate by. Nutrition
+        /// labels are small print and are read at full detail instead, because a misread number is
+        /// worse than a slightly larger bill.
+        var detail: ImageDetail = .medium
     }
 
     var provider: AIProvider = .current
@@ -88,9 +107,23 @@ struct AIClient {
 /// list is tried in order, the account's own model list is the last resort, and whichever model
 /// answers is remembered for next time.
 struct GeminiClient {
-    /// Flash-Lite first: about 1.4 s a scan and the cheapest per token, and it matched reference values
-    /// on everyday foods. The full size models are the backup for when Lite is busy or out of quota.
-    static let preferred = ["gemini-3.5-flash-lite", "gemini-flash-lite-latest", "gemini-3.6-flash", "gemini-3.8-flash", "gemini-flash-latest", "gemini-3.7-flash", "gemini-3.5-flash"]
+    /// Lite models only, cheapest first. Benchmarked on 20 September 2026 over fourteen published
+    /// reference foods, three runs each, with the totals prompt in FoodAnalyzer: 3.1 Flash-Lite
+    /// averaged 3.6 percent off with no estimate more than 50 percent out, at $0.25 and $1.50 per
+    /// million tokens. 3.5 Flash-Lite averaged 4.8 percent with one miss at 80 percent and costs
+    /// $0.30 and $2.50. The cheaper model was also the more accurate one, so it leads.
+    ///
+    /// The full size Flash models used to sit at the end of this list as a fallback. They are gone on
+    /// purpose. 3.5 Flash bills output at $9 per million, thirteen times Lite's rate before any
+    /// thinking tokens, and falling back to it silently turned a busy minute into a bill nobody asked
+    /// for. When every Lite model is busy the scan now fails and can be retried, which costs nothing.
+    ///
+    /// 2.5 Flash-Lite is cheaper still on paper, at $0.10 and $0.40, and it is the only Lite model
+    /// that can switch thinking off entirely. It is not here because it does not work: a key made in
+    /// September 2026 gets 404 "no longer available to new users" from it and from 2.5 Flash, even
+    /// though both are still listed as current. The alias is last as a hedge against renames; it
+    /// resolved to 3.5 Flash-Lite when this was written.
+    static let preferred = ["gemini-3.1-flash-lite", "gemini-3.5-flash-lite", "gemini-flash-lite-latest"]
     static let modelDefaultsKey = "gemini.model"
     /// Thinking tokens the service reported for the latest answer. Zero means the speed hint took effect.
     nonisolated(unsafe) static var lastThoughtTokens = 0
@@ -196,8 +229,10 @@ struct GeminiClient {
         parts.append(["text": content.text])
 
         // Thinking is switched off below, but a model that ignores the hint spends thinking tokens
-        // from the same allowance, so leave room or the JSON gets cut off.
-        let budget = max(maxTokens * 2, 4096)
+        // from the same allowance and they are billed as output. The ceiling is therefore the most
+        // a single scan can ever cost, so it is set just above what a large meal actually needs:
+        // an eight component meal measured at 984 output tokens.
+        let budget = min(max(maxTokens, 1600), 2400)
         var tried: [String] = []
         var lastError: AIError = .noModel("")
         var sawBusy = false
@@ -209,8 +244,11 @@ struct GeminiClient {
             tried.append(model)
             do {
                 let data: Data
-                do { data = try await send(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: budget) }
-                catch AIError.truncated { data = try await send(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: budget * 3) }
+                do { data = try await send(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: budget, detail: content.detail) }
+                // One retry with more room, not three times more: the old multiplier meant a model
+                // that ignored the thinking hint could spend twelve thousand output tokens on one
+                // photo, and it re-sent the image to do it.
+                catch AIError.truncated { data = try await send(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: 4000, detail: content.detail) }
                 // Adopt this model as the favorite only when every better one is really gone, not when
                 // they were busy or sitting out a cooldown. Otherwise one bad minute would demote the
                 // best model for good.
@@ -255,21 +293,21 @@ struct GeminiClient {
         return Self.rankDiscovered(list.map { (name: $0["name"] as? String ?? "", methods: $0["supportedGenerationMethods"] as? [String] ?? []) })
     }
 
-    private func send(model: String, key: String, system: String, parts: [[String: Any]], schema: [String: Any], maxTokens: Int) async throws -> Data {
+    private func send(model: String, key: String, system: String, parts: [[String: Any]], schema: [String: Any], maxTokens: Int, detail: AIClient.ImageDetail) async throws -> Data {
         let rejectedKey = Self.hintRejectedKey(model)
         if !UserDefaults.standard.bool(forKey: rejectedKey) {
-            do { return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: true) }
+            do { return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: true, detail: detail) }
             catch AIError.http(let status, let message) where Self.isThinkingRejected(status: status, message: message) {
                 // Only blame the hint if the same request succeeds without it.
-                let data = try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false)
+                let data = try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false, detail: detail)
                 UserDefaults.standard.set(true, forKey: rejectedKey)
                 return data
             }
         }
-        return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false)
+        return try await post(model: model, key: key, system: system, parts: parts, schema: schema, maxTokens: maxTokens, hint: false, detail: detail)
     }
 
-    private func post(model: String, key: String, system: String, parts: [[String: Any]], schema: [String: Any], maxTokens: Int, hint: Bool) async throws -> Data {
+    private func post(model: String, key: String, system: String, parts: [[String: Any]], schema: [String: Any], maxTokens: Int, hint: Bool, detail: AIClient.ImageDetail) async throws -> Data {
         var config: [String: Any] = [
             "responseMimeType": "application/json",
             "responseSchema": Self.geminiSchema(schema),
@@ -277,6 +315,8 @@ struct GeminiClient {
             "temperature": 0.2,
         ]
         if hint { config["thinkingConfig"] = Self.thinkingConfig }
+        // Only meaningful when a part carries an image, and harmless otherwise.
+        if let resolution = detail.geminiValue { config["mediaResolution"] = resolution }
         let body: [String: Any] = [
             "system_instruction": ["parts": [["text": system]]],
             "contents": [["role": "user", "parts": parts]],
@@ -307,7 +347,11 @@ struct GeminiClient {
             let block = ((try? JSONSerialization.jsonObject(with: data) as? [String: Any])?["promptFeedback"] as? [String: Any])?["blockReason"] as? String
             throw AIError.refusal(block ?? "")
         }
-        Self.lastThoughtTokens = (json["usageMetadata"] as? [String: Any])?["thoughtsTokenCount"] as? Int ?? 0
+        let usage = json["usageMetadata"] as? [String: Any]
+        Self.lastThoughtTokens = usage?["thoughtsTokenCount"] as? Int ?? 0
+        AIUsage.record(model: model,
+                       input: usage?["promptTokenCount"] as? Int ?? 0,
+                       output: (usage?["candidatesTokenCount"] as? Int ?? 0) + Self.lastThoughtTokens)
         let reason = candidate["finishReason"] as? String ?? ""
         if reason == "SAFETY" || reason == "PROHIBITED_CONTENT" { throw AIError.refusal(reason.capitalized) }
         let text = ((candidate["content"] as? [String: Any])?["parts"] as? [[String: Any]])?

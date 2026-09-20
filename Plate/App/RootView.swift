@@ -7,12 +7,19 @@ struct RootView: View {
     /// The first appearance is the only one allowed to create or seed a profile. Without this the
     /// query can still read empty on a second pass and a duplicate profile appears.
     @State private var didPrepare = false
+    /// The profile currently being set up. Onboarding marks a profile done as soon as the essential
+    /// questions are answered, so someone who stops there is fully set up, which means the flag
+    /// alone can no longer say whether the optional questions after it are still on screen. Holding
+    /// the identity rather than a plain switch keeps a profile replaced underneath us, as the demo
+    /// seed does, from pinning the flow open.
+    @State private var settingUp: PersistentIdentifier?
 
     var body: some View {
         Group {
             if let profile = profiles.first {
-                if !profile.onboarded {
-                    OnboardingView(profile: profile)
+                if !profile.onboarded || settingUp == profile.persistentModelID {
+                    OnboardingView(profile: profile) { settingUp = nil }
+                        .onAppear { settingUp = profile.persistentModelID }
                 } else if profile.needsDeeperSetup, !profile.dismissedDeeperSetup {
                     DeeperSetupView(profile: profile) { profile.onboarded = false }
                 } else {

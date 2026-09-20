@@ -126,6 +126,21 @@ enum TrainingStyle: String, Codable, CaseIterable, Identifiable {
     }
     /// Whether this style builds the muscle that shapes a body part.
     var buildsMuscle: Bool { self == .strength || self == .hiit || self == .mixed }
+
+    /// The "how often, and how long" question with this style named in it. The screen that asks it
+    /// comes straight after the one that picked the style, and a tester read it with no idea what
+    /// it was about, so the referent is carried across rather than assumed.
+    var loadQuestion: String {
+        switch self {
+        case .none, .mixed: return "How much training do you do?"
+        case .strength: return "How much lifting do you do?"
+        case .cardio: return "How much running or cycling do you do?"
+        case .hiit: return "How many interval sessions do you do?"
+        case .sports: return "How much sport do you play?"
+        case .yoga: return "How much yoga or pilates do you do?"
+        case .walking: return "How much walking do you do?"
+        }
+    }
 }
 
 enum TrainingExperience: String, Codable, CaseIterable, Identifiable {
@@ -185,6 +200,70 @@ enum Goal: String, Codable, CaseIterable, Identifiable {
         }
     }
     var changesWeight: Bool { self == .lose || self == .gain }
+}
+
+/// What someone ticks on the goal screen. Only three, because "lose fat and build muscle" is not a
+/// fourth thing to want, it is the first and the third at the same time. Ticking both is what
+/// produces `Goal.recomp`, so the stored goal keeps all four cases and nothing has to migrate.
+enum GoalChoice: String, Codable, CaseIterable, Identifiable {
+    case loseFat, maintain, buildMuscle
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .loseFat: return "Lose fat"
+        case .maintain: return "Maintain"
+        case .buildMuscle: return "Build muscle"
+        }
+    }
+    var detail: String {
+        switch self {
+        case .loseFat: return "A calorie deficit, with enough protein to keep the muscle you have."
+        case .maintain: return "Hold your weight steady and eat well."
+        case .buildMuscle: return "A small surplus so the weight you add is mostly muscle."
+        }
+    }
+    var symbol: String {
+        switch self {
+        case .loseFat: return "arrow.down.right"
+        case .maintain: return "equal"
+        case .buildMuscle: return "arrow.up.right"
+        }
+    }
+    /// Maintaining rules out the other two, and either of the other two rules out maintaining.
+    var isExclusive: Bool { self == .maintain }
+}
+
+extension Goal {
+    /// The goal a set of ticks adds up to, or nil while nothing is ticked. Maintain wins if it
+    /// somehow arrives alongside another tick, because holding steady is the cautious reading.
+    static func from(_ choices: Set<GoalChoice>) -> Goal? {
+        if choices.contains(.maintain) { return .maintain }
+        switch (choices.contains(.loseFat), choices.contains(.buildMuscle)) {
+        case (true, true): return .recomp
+        case (true, false): return .lose
+        case (false, true): return .gain
+        case (false, false): return nil
+        }
+    }
+
+    /// The ticks that add up to this goal, so a profile that has been through setup before opens
+    /// the screen with its answer showing.
+    var choices: Set<GoalChoice> {
+        switch self {
+        case .lose: return [.loseFat]
+        case .maintain: return [.maintain]
+        case .gain: return [.buildMuscle]
+        case .recomp: return [.loseFat, .buildMuscle]
+        }
+    }
+
+    /// One tick turned on or off, with the exclusivity applied. Kept apart from the view so the
+    /// rule can be read and tested on its own.
+    static func toggling(_ choice: GoalChoice, in current: Set<GoalChoice>) -> Set<GoalChoice> {
+        if current.contains(choice) { return current.subtracting([choice]) }
+        if choice.isExclusive { return [choice] }
+        return current.filter { !$0.isExclusive }.union([choice])
+    }
 }
 
 enum DietStyle: String, Codable, CaseIterable, Identifiable {

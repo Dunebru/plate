@@ -68,11 +68,19 @@ struct SelectionBackground: View {
     }
 }
 
+/// The shape carries the rule. A circle means exactly one answer, a square means tick as many as
+/// are true, and nothing is allowed to mix the two.
 struct SelectionMark: View {
     var selected: Bool
+    var multiple: Bool = false
+
+    private var symbol: String {
+        if multiple { return selected ? "checkmark.square.fill" : "square" }
+        return selected ? "largecircle.fill.circle" : "circle"
+    }
 
     var body: some View {
-        Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+        Image(systemName: symbol)
             .font(.title3)
             .foregroundStyle(selected ? Color.accentColor : Color.secondary.opacity(0.3))
             .symbolEffect(.bounce, value: selected)
@@ -117,6 +125,8 @@ struct ChoiceRow: View {
     var detail: String? = nil
     var selected: Bool
     var emphasis: Bool = false
+    /// Draws a square box instead of a radio dot, for the questions that take more than one answer.
+    var multiple: Bool = false
     var action: () -> Void
 
     var body: some View {
@@ -140,7 +150,7 @@ struct ChoiceRow: View {
                     }
                 }
                 Spacer(minLength: 8)
-                SelectionMark(selected: selected)
+                SelectionMark(selected: selected, multiple: multiple)
             }
             .multilineTextAlignment(.leading)
             .padding(.vertical, emphasis ? 16 : 14)

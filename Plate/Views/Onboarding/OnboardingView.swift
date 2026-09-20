@@ -1,26 +1,164 @@
 import SwiftUI
 import SwiftData
 
-/// The questionnaire. One question a screen, and every answer is written straight into the profile so
-/// nothing is lost halfway. The steps that do not apply are skipped, and the progress bar counts only
-/// the ones this person will actually see.
+/// The questionnaire, in two halves.
+///
+/// The first half asks only what a calorie and macro target is actually built from: what you want,
+/// who you are, how big you are, how much you move, and how fast you want to go. That is enough to
+/// finish, so the plan arrives in eight screens and the profile is marked done the moment it does.
+///
+/// The second half is optional and comes in named runs. Each one says what it sharpens before it
+/// starts, and hands you back to an updated plan when it ends, so you can stop after any of them.
 struct OnboardingView: View {
     @Bindable var profile: Profile
     @Environment(\.modelContext) private var context
 
-    enum Step: Int, CaseIterable, Comparable {
-        case welcome, sex, birthday, size, movement, trainingStyle, trainingLoad, experience,
-             goal, targetWeight, pace, tapeIntro, tape, targetBodyFat, focus, diet, avoids,
-             mealPattern, cycling, drinks, obstacles, health, apiKey, generating, plan
+    /// Where this was opened from. The full run starts at the welcome screen and ends with someone
+    /// set up. The refinement run starts at the plan and offers only the optional questions, which
+    /// is what the Settings entry point wants.
+    enum Mode { case full, refinement }
 
-        static func < (lhs: Step, rhs: Step) -> Bool { lhs.rawValue < rhs.rawValue }
+    let mode: Mode
+    let onFinish: () -> Void
+
+    init(profile: Profile, mode: Mode = .full, onFinish: @escaping () -> Void = {}) {
+        _profile = Bindable(wrappedValue: profile)
+        self.mode = mode
+        self.onFinish = onFinish
+        _step = State(initialValue: mode == .refinement ? .plan : .welcome)
+        _leg = State(initialValue: mode == .refinement ? .hub : .essentials)
     }
 
-    @State private var step: Step = .welcome
+    enum Step: Int, CaseIterable {
+        // Phase one. Nothing here can be skipped, because nothing here can be guessed.
+        case welcome, goal, basics, size, movement, targetWeight, pace, generating, plan
+        // Phase two, one named run at a time. Each opens with its own intro screen.
+        case trainingIntro, trainingStyle, trainingLoad, experience
+        case bodyFatIntro, tape, targetBodyFat
+        case eatingIntro, diet, avoids, mealPattern, cycling
+        case habitsIntro, focus, drinks, obstacles
+        case setupIntro, health, apiKey
+
+        /// Phase one in order. Everything below it in the enum refines a number that already exists.
+        static let essentials: [Step] = [.welcome, .goal, .basics, .size, .movement,
+                                         .targetWeight, .pace, .generating, .plan]
+    }
+
+    /// A named run of optional questions. It says what it buys before it starts, says how long it
+    /// is, and ends back at the plan, so no run is ever open ended.
+    struct Chunk: Identifiable {
+        struct Gain: Identifiable {
+            var symbol: String
+            var title: String
+            var detail: String
+            var id: String { title }
+        }
+
+        var id: String
+        var title: String
+        var symbol: String
+        /// One line for the list on the plan screen: what answering this buys.
+        var promise: String
+        var heading: String
+        var blurb: String
+        var gains: [Gain]
+        var note: String? = nil
+        var startTitle: String = "Answer them"
+        /// The intro screen first, then the questions.
+        var steps: [Step]
+    }
+
+    static let chunks: [Chunk] = [
+        Chunk(id: "training",
+              title: "Training",
+              symbol: "dumbbell.fill",
+              promise: "Sharpens the daily burn your target is built on",
+              heading: "What your training costs",
+              blurb: "Three questions. Until they are answered your target assumes you do nothing on purpose, so every session you do is missing from it.",
+              gains: [
+                .init(symbol: "flame.fill", title: "Sessions go into the budget",
+                      detail: "What a workout costs is worked out from your weight and the kind of training, then spread across the week."),
+                .init(symbol: "speedometer", title: "A gaining plan gets a ceiling",
+                      detail: "How long you have trained sets how fast muscle can arrive, and that is what caps a surplus."),
+              ],
+              steps: [.trainingIntro, .trainingStyle, .trainingLoad, .experience]),
+        Chunk(id: "bodyFat",
+              title: "Body fat",
+              symbol: "ruler",
+              promise: "Swaps the resting burn formula for one built on your lean mass",
+              heading: "Three measurements, one real number",
+              blurb: "A tape round your neck and waist turns a guess into a body fat figure within about three points of a DEXA scan. It takes a minute.",
+              gains: [
+                .init(symbol: "flame.fill", title: "A better resting burn",
+                      detail: "Lean mass predicts resting energy better than weight does, so the whole plan sharpens."),
+                .init(symbol: "fork.knife", title: "Protein against lean mass",
+                      detail: "Fat does not need feeding. Protein is set from the muscle you actually carry."),
+                .init(symbol: "speedometer", title: "A safe pace for your level",
+                      detail: "How fast you can lose depends on how much fat there is to lose."),
+              ],
+              note: "Skip it if you have no tape to hand. Plate falls back to a BMI estimate and says so wherever it shows the number.",
+              startTitle: "Take three measurements",
+              steps: [.bodyFatIntro, .tape, .targetBodyFat]),
+        Chunk(id: "eating",
+              title: "How you eat",
+              symbol: "fork.knife",
+              promise: "Shapes your macros and how the day is split",
+              heading: "How you like to eat",
+              blurb: "Four questions. None of them change the calorie total. They change how it splits into protein, carbs and fat, and how it is spread across the day and the week.",
+              gains: [
+                .init(symbol: "chart.pie.fill", title: "Macros that match your plate",
+                      detail: "A low carb or plant based week needs a different split to land the same protein."),
+                .init(symbol: "calendar", title: "Days that are not all the same",
+                      detail: "Eat more when you train or at the weekend, with the weekly total unchanged."),
+              ],
+              steps: [.eatingIntro, .diet, .avoids, .mealPattern, .cycling]),
+        Chunk(id: "habits",
+              title: "Habits",
+              symbol: "lightbulb.fill",
+              promise: "Picks the guidance and nudges Plate shows you",
+              heading: "What you want, and what gets in the way",
+              blurb: "Three questions. None of them move the calorie number. They decide which advice you see and when.",
+              gains: [
+                .init(symbol: "figure.strengthtraining.traditional", title: "Guidance for the parts you care about",
+                      detail: "Honest advice per body part, including what training can and cannot change."),
+                .init(symbol: "wineglass", title: "Drinks counted properly",
+                      detail: "Alcohol carries calories with almost nothing useful attached, and it is the easiest thing to forget."),
+              ],
+              steps: [.habitsIntro, .focus, .drinks, .obstacles]),
+        Chunk(id: "setup",
+              title: "Setup",
+              symbol: "gearshape.fill",
+              promise: "Turns on Apple Health and logging from a photo",
+              heading: "Health and photo logging",
+              blurb: "Two screens. Neither moves your target, both decide how much typing you do.",
+              gains: [
+                .init(symbol: "heart.fill", title: "Apple Health, both ways",
+                      detail: "Meals go out as they are logged. Weight and workouts come back in, so you only type things once."),
+                .init(symbol: "camera.fill", title: "Photograph a meal",
+                      detail: "A key from a hosted model turns on logging from a photo. Barcodes, search and manual entry work without one."),
+              ],
+              steps: [.setupIntro, .health, .apiKey]),
+    ]
+
+    /// Which run of screens is on. The plan belongs to the essential run while it is being revealed,
+    /// and to the hub once an optional run has handed it back.
+    private enum Leg: Equatable {
+        case essentials
+        case chunk(String)
+        case hub
+    }
+
+    @State private var step: Step
+    @State private var leg: Leg
     @State private var movingForward = true
     @State private var answered: Set<Step> = []
-    @State private var tapeSkipped = false
+    @State private var goalChoices: Set<GoalChoice> = []
+    @State private var sexTouched = false
     @State private var dobTouched = false
+    @State private var targetWeightTouched = false
+    @State private var doneChunks: Set<String> = []
+    @State private var lastChunk: Chunk?
+    @State private var planBefore: NutritionMath.Plan?
     @State private var selectionTick = 0
     @State private var revealTick = 0
     @State private var newAvoid = ""
@@ -45,11 +183,8 @@ struct OnboardingView: View {
         .sheet(isPresented: $showSources) { NavigationStack { SourcesView() } }
         .onAppear(perform: seedAnswers)
         .onChange(of: step) { _, now in
-            if now == .plan {
-                profile.recalculateTargets()
-                plan = profile.plan
-                revealTick += 1
-            }
+            guard now == .plan else { return }
+            arriveAtPlan()
         }
     }
 
@@ -71,15 +206,20 @@ struct OnboardingView: View {
 
             FlowProgressBar(progress: progress)
 
-            Text("\(shownIndex + 1) of \(visible.count)")
+            Text(counterLabel)
                 .font(.caption.weight(.medium))
                 .monospacedDigit()
+                .lineLimit(1)
+                .layoutPriority(1)
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
         }
         .padding(.horizontal, 20)
         .padding(.top, 6)
         .padding(.bottom, 14)
+        // Kept in the layout rather than removed, so the question below it does not jump.
+        .opacity(showsProgress ? 1 : 0)
+        .disabled(!showsProgress)
     }
 
     private var footer: some View {
@@ -87,11 +227,18 @@ struct OnboardingView: View {
             switch step {
             case .generating:
                 EmptyView()
-            case .tapeIntro:
-                Button("Take three measurements") { go(to: .tape, forward: true); tapeSkipped = false }
+            case .trainingIntro, .bodyFatIntro, .eatingIntro, .habitsIntro, .setupIntro:
+                Button(chunk?.startTitle ?? "Answer them") { advance() }
                     .buttonStyle(FlowButtonStyle())
-                Button("Skip, use an estimate") { skipTape() }
+                Button("Skip this part") { skipChunk() }
                     .buttonStyle(FlowButtonStyle(prominent: false))
+            case .plan:
+                Button(mode == .refinement ? "Done" : "Start tracking") { leave() }
+                    .buttonStyle(FlowButtonStyle())
+                if let next = nextChunk {
+                    Button("Make it sharper") { start(next) }
+                        .buttonStyle(FlowButtonStyle(prominent: false))
+                }
             default:
                 Button(primaryTitle, action: primaryAction)
                     .buttonStyle(FlowButtonStyle())
@@ -109,72 +256,126 @@ struct OnboardingView: View {
         switch step {
         case .welcome: return "Get started"
         case .tape: return tapeBodyFat == nil ? "Skip for now" : "Continue"
+        case .focus: return profile.focusAreas.isEmpty ? "Nowhere in particular" : "Continue"
         case .avoids: return profile.avoids.isEmpty ? "Nothing to avoid" : "Continue"
         case .obstacles: return profile.obstacles.isEmpty ? "Skip" : "Continue"
         case .apiKey: return apiKey.trimmed.isEmpty ? "Skip for now" : "Continue"
-        case .plan: return "Start tracking"
         default: return "Continue"
         }
     }
 
     private func primaryAction() {
-        switch step {
-        case .apiKey:
-            if !apiKey.trimmed.isEmpty { Keychain.set(apiKey.trimmed, for: provider.keyAccount) }
-            advance()
-        case .plan:
-            finish()
-        default:
-            advance()
+        if step == .apiKey, !apiKey.trimmed.isEmpty {
+            Keychain.set(apiKey.trimmed, for: provider.keyAccount)
         }
+        advance()
     }
 
     private var canContinue: Bool {
         switch step {
-        case .sex, .movement, .trainingStyle, .experience, .goal, .diet, .mealPattern, .cycling:
+        case .basics: return sexTouched && dobTouched
+        case .goal: return Goal.from(goalChoices) != nil
+        case .movement, .trainingStyle, .experience, .diet, .mealPattern, .cycling:
             return answered.contains(step)
-        case .birthday: return dobTouched
         case .trainingLoad: return profile.trainingDaysPerWeek > 0
-        case .focus: return !profile.focusAreas.isEmpty
         default: return true
         }
     }
 
     // MARK: Where we are
 
-    /// Only the steps this person will see. The progress bar reads from this so it cannot lie.
-    private var visible: [Step] { Step.allCases.filter(applies) }
+    private var chunk: Chunk? {
+        guard case .chunk(let id) = leg else { return nil }
+        return Self.chunks.first { $0.id == id }
+    }
+
+    private var nextChunk: Chunk? { Self.chunks.first { !doneChunks.contains($0.id) } }
+
+    /// Every screen on this run, in the order they are walked.
+    private var route: [Step] {
+        switch leg {
+        case .essentials: return Step.essentials.filter(applies)
+        case .hub: return [.plan]
+        case .chunk: return ((chunk?.steps ?? []) + [.plan]).filter(applies)
+        }
+    }
+
+    /// What the counter is allowed to count. The title card and the working it out screen are not
+    /// questions, and the plan is the reward at the end of an optional run rather than a part of
+    /// it, so none of the three are counted.
+    private var counted: [Step] {
+        route.filter { $0 != .welcome && $0 != .generating && !($0 == .plan && chunk != nil) }
+    }
 
     private func applies(_ candidate: Step) -> Bool {
         switch candidate {
         case .trainingLoad, .experience: return profile.trainingStyle != .none
         case .targetWeight, .pace: return profile.goal.changesWeight
-        case .tape: return !tapeSkipped
         case .targetBodyFat: return (tapeBodyFat ?? 0) > bodyFatFloor + 1
         default: return true
         }
     }
 
-    private var shownIndex: Int { visible.firstIndex(of: step) ?? 0 }
+    private var shownIndex: Int { counted.firstIndex(of: step) ?? 0 }
+
     private var progress: Double {
-        visible.isEmpty ? 0 : Double(shownIndex + 1) / Double(visible.count)
+        counted.isEmpty ? 0 : Double(shownIndex + 1) / Double(counted.count)
     }
-    private var canGoBack: Bool { step != .welcome && step != .generating }
+
+    private var counterLabel: String {
+        let position = "\(shownIndex + 1) of \(counted.count)"
+        guard let chunk else { return position }
+        return "\(chunk.title) · \(position)"
+    }
+
+    private var showsProgress: Bool {
+        counted.count > 1 && counted.contains(step)
+    }
+
+    private var canGoBack: Bool {
+        if step == .generating || leg == .hub { return false }
+        // The first screen of an optional run goes back to the plan, so no run is ever a trap.
+        if chunk != nil { return true }
+        return step != .welcome
+    }
 
     private func advance() {
-        guard let next = visible.first(where: { $0 > step }) else { return }
+        // The goal is asked before the scale reading now, so the target weight it implies can only
+        // be worked out once height and weight are in.
+        if step == .size { applyGoalDefaults() }
+        let path = route
+        guard let index = path.firstIndex(of: step), index + 1 < path.count else { return }
+        let next = path[index + 1]
+        if next == .plan, let chunk {
+            completeChunk(chunk)
+            goToPlan(forward: true)
+            return
+        }
         go(to: next, forward: true)
     }
 
     private func back() {
-        guard let previous = visible.last(where: { $0 < step && $0 != .generating }) else { return }
-        go(to: previous, forward: false)
+        let path = route.filter { $0 != .generating }
+        guard let index = path.firstIndex(of: step) else { return }
+        guard index > 0 else {
+            if chunk != nil { goToPlan(forward: false) }
+            return
+        }
+        go(to: path[index - 1], forward: false)
     }
 
     private func go(to next: Step, forward: Bool) {
         withAnimation(.flow) {
             movingForward = forward
             step = next
+        }
+    }
+
+    private func goToPlan(forward: Bool) {
+        withAnimation(.flow) {
+            movingForward = forward
+            leg = .hub
+            step = .plan
         }
     }
 
@@ -186,31 +387,84 @@ struct OnboardingView: View {
     }
 
     private func seedAnswers() {
+        // A profile with a birthday on it has been through setup before, so its answers are shown
+        // as given rather than asked for from scratch.
+        if profile.birthDate != nil {
+            sexTouched = true
+            dobTouched = true
+            targetWeightTouched = true
+            goalChoices = profile.goal.choices
+        }
         if profile.dailyActivity != nil { answered.insert(.movement) }
-        if profile.birthDate != nil { dobTouched = true }
         apiKey = Keychain.get(provider.keyAccount) ?? ""
+        plan = profile.plan
+    }
+
+    // MARK: Optional runs
+
+    private func start(_ chunk: Chunk) {
+        planBefore = profile.plan
+        lastChunk = nil
+        withAnimation(.flow) {
+            movingForward = true
+            leg = .chunk(chunk.id)
+            step = chunk.steps[0]
+        }
+    }
+
+    /// Leaves a run without answering it. Nothing is written, so the profile defaults stand and the
+    /// targets are exactly what they were a screen ago.
+    private func skipChunk() {
+        selectionTick += 1
+        goToPlan(forward: false)
+    }
+
+    private func completeChunk(_ chunk: Chunk) {
+        doneChunks.insert(chunk.id)
+        lastChunk = chunk
+        if chunk.id == "bodyFat" { recordTapeMeasurement() }
+    }
+
+    /// The tape numbers live on the profile, but the Body screens chart measurements over time, so
+    /// the first set is written as one too.
+    private func recordTapeMeasurement() {
+        guard profile.neckCm != nil || profile.waistCm != nil || profile.hipCm != nil else { return }
+        let measurement = BodyMeasurement()
+        measurement.weightKg = profile.weightKg
+        measurement.neckCm = profile.neckCm
+        measurement.waistCm = profile.waistCm
+        measurement.hipCm = profile.hipCm
+        measurement.refreshBodyFat(sex: profile.sex, heightCm: profile.heightCm,
+                                   fallbackWeightKg: profile.weightKg)
+        context.insert(measurement)
     }
 
     // MARK: Finishing
 
-    private func finish() {
-        profile.recalculateTargets()
+    private func arriveAtPlan() {
+        // A target edited by hand in Settings is only overwritten once an answer behind it moved.
+        if mode == .full || lastChunk != nil { profile.recalculateTargets() }
+        plan = profile.plan
+        revealTick += 1
+        finishEssentials()
+    }
+
+    /// Phase one is everything the app needs, so it is committed the moment the plan appears.
+    /// Someone who stops here is fully set up, and someone who carries on refining cannot lose it.
+    private func finishEssentials() {
+        guard mode == .full, !profile.onboarded else { return }
         profile.onboarded = true
         context.insert(WeightEntry(weightKg: profile.weightKg))
-        if profile.neckCm != nil || profile.waistCm != nil || profile.hipCm != nil {
-            let measurement = BodyMeasurement()
-            measurement.weightKg = profile.weightKg
-            measurement.neckCm = profile.neckCm
-            measurement.waistCm = profile.waistCm
-            measurement.hipCm = profile.hipCm
-            measurement.refreshBodyFat(sex: profile.sex, heightCm: profile.heightCm,
-                                       fallbackWeightKg: profile.weightKg)
-            context.insert(measurement)
-        }
+        try? context.save()
+    }
+
+    private func leave() {
+        profile.onboarded = true
         try? context.save()
         if profile.writeToHealth {
             Task { await HealthStore.shared.requestAuthorization() }
         }
+        onFinish()
     }
 
     // MARK: Steps
@@ -218,17 +472,18 @@ struct OnboardingView: View {
     @ViewBuilder private var content: some View {
         switch step {
         case .welcome: welcomeStep
-        case .sex: sexStep
-        case .birthday: birthdayStep
+        case .goal: goalStep
+        case .basics: basicsStep
         case .size: sizeStep
         case .movement: movementStep
+        case .targetWeight: targetWeightStep
+        case .pace: paceStep
+        case .generating: generatingStep
+        case .plan: planStep
+        case .trainingIntro, .bodyFatIntro, .eatingIntro, .habitsIntro, .setupIntro: chunkIntroStep
         case .trainingStyle: trainingStyleStep
         case .trainingLoad: trainingLoadStep
         case .experience: experienceStep
-        case .goal: goalStep
-        case .targetWeight: targetWeightStep
-        case .pace: paceStep
-        case .tapeIntro: tapeIntroStep
         case .tape: tapeStep
         case .targetBodyFat: targetBodyFatStep
         case .focus: focusStep
@@ -240,8 +495,6 @@ struct OnboardingView: View {
         case .obstacles: obstaclesStep
         case .health: healthStep
         case .apiKey: apiKeyStep
-        case .generating: generatingStep
-        case .plan: planStep
         }
     }
 
@@ -268,6 +521,10 @@ struct OnboardingView: View {
                 valueLine("lock.fill", "Everything stays on your phone")
             }
             .padding(.top, 36)
+            Text("Six questions and your plan is ready.")
+                .font(.footnote.weight(.medium))
+                .foregroundStyle(.secondary)
+                .padding(.top, 28)
             Spacer(minLength: 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
@@ -286,42 +543,73 @@ struct OnboardingView: View {
         }
     }
 
-    // 2. Sex
+    // 2. Goal. Asked first, because it frames every question after it.
 
-    private var sexStep: some View {
-        OnboardingPage("Male or female?",
-                       "The resting burn and body fat formulas are calibrated separately by sex, so this moves every number that follows.") {
+    private var goalStep: some View {
+        OnboardingPage("What are you here for?",
+                       "Tick everything that is true. Losing fat and building muscle at the same time is a real answer, so both boxes can be ticked at once.") {
             VStack(spacing: 12) {
-                ForEach(Sex.allCases) { option in
-                    ChoiceRow(symbol: option == .male ? "figure.stand" : "figure.stand.dress",
+                ForEach(GoalChoice.allCases) { option in
+                    ChoiceRow(symbol: option.symbol,
                               label: option.label,
-                              selected: profile.sex == option,
-                              emphasis: true) {
-                        pick { profile.sex = option }
+                              detail: option.detail,
+                              selected: goalChoices.contains(option),
+                              emphasis: true,
+                              multiple: true) {
+                        toggleGoal(option)
                     }
+                }
+                if Goal.from(goalChoices) == .recomp {
+                    Callout(symbol: "arrow.triangle.swap",
+                            text: "Both at once is what Plate calls a recomposition. You eat at about maintenance and train hard, so the scale barely moves while your shape does. It is slower than doing one at a time.",
+                            tint: .accentColor)
                 }
             }
         }
     }
 
-    // 3. Date of birth
+    private func toggleGoal(_ choice: GoalChoice) {
+        let chosen = Goal.toggling(choice, in: goalChoices)
+        pick {
+            goalChoices = chosen
+            if let goal = Goal.from(chosen) { profile.goal = goal }
+        }
+    }
 
-    private var birthdayStep: some View {
-        OnboardingPage("When were you born?",
-                       "Resting burn falls a little every year. Scroll to your birthday.") {
-            VStack(spacing: 12) {
-                DatePicker("Date of birth", selection: birthDate, in: birthRange, displayedComponents: .date)
-                    .datePickerStyle(.wheel)
-                    .labelsHidden()
-                    .frame(maxWidth: .infinity)
-                    .padding(6)
-                    .background(SelectionBackground(selected: false, cornerRadius: 20))
-                if dobTouched {
-                    Text("\(profile.age) years old")
-                        .font(.system(.title3, design: .rounded).weight(.bold))
-                        .monospacedDigit()
-                        .contentTransition(.numericText())
+    // 3. Sex and date of birth. One screen, because they are the same question about your body.
+
+    private var basicsStep: some View {
+        OnboardingPage("What sex are you, and when were you born?",
+                       "The resting burn and body fat formulas are calibrated separately by sex, and resting burn falls a little every year. Both move every number that follows.") {
+            VStack(alignment: .leading, spacing: 20) {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Sex").font(.subheadline.weight(.semibold))
+                    ForEach(Sex.allCases) { option in
+                        ChoiceRow(symbol: option == .male ? "figure.stand" : "figure.stand.dress",
+                                  label: option.label,
+                                  selected: sexTouched && profile.sex == option) {
+                            pick {
+                                profile.sex = option
+                                sexTouched = true
+                            }
+                        }
+                    }
+                }
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("Date of birth").font(.subheadline.weight(.semibold))
+                    DatePicker("Date of birth", selection: birthDate, in: birthRange, displayedComponents: .date)
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
                         .frame(maxWidth: .infinity)
+                        .padding(6)
+                        .background(SelectionBackground(selected: false, cornerRadius: 20))
+                    if dobTouched {
+                        Text("\(profile.age) years old")
+                            .font(.system(.title3, design: .rounded).weight(.bold))
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .frame(maxWidth: .infinity)
+                    }
                 }
             }
         }
@@ -377,7 +665,7 @@ struct OnboardingView: View {
 
     private var movementStep: some View {
         OnboardingPage("How much do you move on a normal day?",
-                       "Everyday life only, outside any workout. Training is the next question, so nothing gets counted twice.") {
+                       "Everyday life only, outside any workout. Training is asked separately later, so nothing gets counted twice.") {
             VStack(spacing: 10) {
                 ForEach(DailyActivity.allCases) { option in
                     ChoiceRow(symbol: option.symbol,
@@ -391,7 +679,185 @@ struct OnboardingView: View {
         }
     }
 
-    // 6. Training style
+    // 6. Target weight
+
+    private var targetWeightStep: some View {
+        OnboardingPage("What weight are you aiming at?",
+                       "A direction, not a promise. You can move it whenever you like.") {
+            VStack(spacing: 16) {
+                BigNumber(value: Units.weightString(profile.targetWeightKg, profile.units, decimals: 1),
+                          caption: targetDeltaLine,
+                          size: 50)
+                Slider(value: targetWeightBinding, in: targetWeightRange, step: 0.1)
+                HStack {
+                    Text(Units.weightString(targetWeightRange.lowerBound, profile.units, decimals: 0))
+                    Spacer()
+                    Text(Units.weightString(targetWeightRange.upperBound, profile.units, decimals: 0))
+                }
+                .font(.caption)
+                .monospacedDigit()
+                .foregroundStyle(.secondary)
+
+                Callout(symbol: "ruler",
+                        text: "A weight that puts your BMI in the healthy range for your height is \(Units.weightString(healthyRange.lowerBound, profile.units, decimals: 0)) to \(Units.weightString(healthyRange.upperBound, profile.units, decimals: 0)). BMI describes a population rather than a person, so treat it as a signpost.")
+                if profile.targetWeightKg < healthyRange.lowerBound {
+                    Callout(symbol: "exclamationmark.circle",
+                            text: "That sits below the healthy range for your height. It can be the right call, and Plate will still do the maths, but it is worth a word with a doctor first.",
+                            tint: .orange)
+                }
+            }
+            .onAppear(perform: clampTargetWeight)
+        }
+    }
+
+    /// The default target the goal implies, at the size that was actually entered. A target the
+    /// person has moved themselves is never overwritten.
+    private func applyGoalDefaults() {
+        guard !targetWeightTouched else { return }
+        switch profile.goal {
+        case .maintain, .recomp:
+            profile.targetWeightKg = profile.weightKg
+        case .lose:
+            let healthy = BodyComposition.healthyWeightRange(heightCm: profile.heightCm).lowerBound
+            profile.targetWeightKg = min(profile.weightKg - 1, max(profile.weightKg - 6, healthy))
+        case .gain:
+            profile.targetWeightKg = profile.weightKg + 4
+        }
+    }
+
+    private func clampTargetWeight() {
+        let range = targetWeightRange
+        profile.targetWeightKg = min(max(profile.targetWeightKg, range.lowerBound), range.upperBound)
+    }
+
+    private var targetWeightBinding: Binding<Double> {
+        Binding(get: { profile.targetWeightKg },
+                set: { picked in
+                    profile.targetWeightKg = picked
+                    targetWeightTouched = true
+                })
+    }
+
+    private var healthyRange: ClosedRange<Double> {
+        BodyComposition.healthyWeightRange(heightCm: profile.heightCm)
+    }
+
+    private var targetWeightRange: ClosedRange<Double> {
+        let current = profile.weightKg
+        if profile.goal == .gain { return current...(current * 1.35) }
+        let lowest = min(current - 2, max(35, current * 0.55))
+        return lowest...current
+    }
+
+    private var targetDeltaLine: String {
+        let change = abs(profile.targetWeightKg - profile.weightKg)
+        guard change > 0.05 else { return "the same as today" }
+        let word = profile.targetWeightKg < profile.weightKg ? "to lose" : "to gain"
+        return "\(Units.weightString(change, profile.units, decimals: 1)) \(word)"
+    }
+
+    // 7. Pace
+
+    private var paceStep: some View {
+        OnboardingPage("How fast do you want to go?",
+                       "Slower is easier to keep and costs less muscle. Plate will not let you pick something unsafe.") {
+            VStack(spacing: 16) {
+                BigNumber(value: Units.weightString(profile.paceKgPerWeek, profile.units,
+                                                    decimals: profile.units == .metric ? 2 : 1),
+                          caption: "a week",
+                          size: 50)
+                Slider(value: $profile.paceKgPerWeek, in: paceRange, step: 0.05)
+                HStack {
+                    Text("Steady")
+                    Spacer()
+                    Text("Aggressive")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
+                Callout(symbol: "speedometer",
+                        text: "The fastest Plate will aim for at your size is \(Units.weightString(paceCeiling, profile.units, decimals: 2)) a week.")
+                if isPaceCapped {
+                    Callout(symbol: "arrow.down.to.line", text: capReason, tint: .orange)
+                }
+            }
+            .onAppear {
+                profile.paceKgPerWeek = min(max(profile.paceKgPerWeek, paceRange.lowerBound), paceRange.upperBound)
+            }
+        }
+    }
+
+    private var paceRange: ClosedRange<Double> {
+        profile.goal == .gain ? 0.05...0.6 : 0.1...1.2
+    }
+
+    /// What the safety caps allow, read straight from the engine by asking for an absurd pace.
+    private var paceCeiling: Double {
+        var inputs = profile.inputs
+        inputs.paceKgPerWeek = 99
+        return NutritionMath.cappedPace(inputs)
+    }
+
+    private var isPaceCapped: Bool {
+        NutritionMath.cappedPace(profile.inputs) < profile.paceKgPerWeek - 0.001
+    }
+
+    private var capReason: String {
+        let capped = Units.weightString(NutritionMath.cappedPace(profile.inputs), profile.units, decimals: 2)
+        if profile.goal == .gain {
+            return "Your plan will aim at \(capped) a week. Muscle cannot be built faster than that at your training age, so anything quicker would arrive as fat."
+        }
+        return "Your plan will aim at \(capped) a week. Faster than that for your size and the weight coming off is increasingly muscle."
+    }
+
+    // 8. Working it out
+
+    private var generatingStep: some View {
+        GeneratingView(lines: ["Working out your resting burn",
+                               "Adding everyday movement",
+                               "Checking a safe pace",
+                               "Balancing your macros"]) {
+            advance()
+        }
+    }
+
+    // MARK: The optional runs
+
+    @ViewBuilder private var chunkIntroStep: some View {
+        if let chunk {
+            OnboardingPage(chunk.heading, chunk.blurb) {
+                VStack(spacing: 10) {
+                    ForEach(chunk.gains) { gain in
+                        gainRow(gain)
+                    }
+                    if let note = chunk.note {
+                        Callout(symbol: "hand.raised", text: note)
+                    }
+                }
+            }
+        }
+    }
+
+    private func gainRow(_ gain: Chunk.Gain) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            Image(systemName: gain.symbol)
+                .font(.title3)
+                .foregroundStyle(Color.accentColor)
+                .frame(width: 28)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(gain.title).font(.body.weight(.semibold))
+                Text(gain.detail)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 0)
+        }
+        .padding(16)
+        .background(SelectionBackground(selected: false))
+    }
+
+    // Training
 
     private var trainingStyleStep: some View {
         OnboardingPage("Do you train, and what kind?",
@@ -420,11 +886,9 @@ struct OnboardingView: View {
         }
     }
 
-    // 7. How much training
-
     private var trainingLoadStep: some View {
-        OnboardingPage("How often, and how long?",
-                       "Rough is fine. Plate works out what the sessions cost you and adds it to your day.") {
+        OnboardingPage(profile.trainingStyle.loadQuestion,
+                       "A session is one workout, from warm up to the end. Rough numbers are fine: Plate turns them into calories and adds them to your day.") {
             VStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 12) {
                     HStack {
@@ -496,14 +960,13 @@ struct OnboardingView: View {
                 set: { profile.trainingMinutes = Int($0.rounded()) })
     }
 
+    /// One number in one unit. The daily figure is the one that matters, because the daily figure is
+    /// what the calorie budget is made of.
     private var trainingBurnLine: String {
-        let perDay = NutritionMath.trainingKcalPerDay(profile.inputs)
-        guard perDay > 0 else { return "Pick at least one day to see what the training costs." }
-        let weekly = Int((perDay * 7).rounded())
-        return "Around \(weekly) calories a week from training, about \(Int(perDay.rounded())) a day once it is spread across the week."
+        let perDay = Int(NutritionMath.trainingKcalPerDay(profile.inputs).rounded())
+        guard perDay > 0 else { return "Pick at least one day to see what your training adds." }
+        return "That adds about \(perDay) calories to your daily budget."
     }
-
-    // 8. Experience
 
     private var experienceStep: some View {
         OnboardingPage("How long have you been training?",
@@ -534,192 +997,7 @@ struct OnboardingView: View {
         "At best around \(Units.weightString(option.monthlyMuscleKg, profile.units, decimals: 1)) of muscle a month."
     }
 
-    // 9. Goal
-
-    private var goalStep: some View {
-        OnboardingPage("What are you here for?") {
-            VStack(spacing: 12) {
-                ForEach(Goal.allCases) { option in
-                    ChoiceRow(symbol: option.symbol,
-                              label: option.label,
-                              detail: option.detail,
-                              selected: profile.goal == option,
-                              emphasis: true) {
-                        pick { chooseGoal(option) }
-                    }
-                }
-            }
-        }
-    }
-
-    private func chooseGoal(_ goal: Goal) {
-        profile.goal = goal
-        switch goal {
-        case .maintain, .recomp:
-            profile.targetWeightKg = profile.weightKg
-        case .lose:
-            if profile.targetWeightKg >= profile.weightKg {
-                let healthy = BodyComposition.healthyWeightRange(heightCm: profile.heightCm).lowerBound
-                profile.targetWeightKg = min(profile.weightKg - 1, max(profile.weightKg - 6, healthy))
-            }
-        case .gain:
-            if profile.targetWeightKg <= profile.weightKg {
-                profile.targetWeightKg = profile.weightKg + 4
-            }
-        }
-    }
-
-    // 10. Target weight
-
-    private var targetWeightStep: some View {
-        OnboardingPage("What weight are you aiming at?",
-                       "A direction, not a promise. You can move it whenever you like.") {
-            VStack(spacing: 16) {
-                BigNumber(value: Units.weightString(profile.targetWeightKg, profile.units, decimals: 1),
-                          caption: targetDeltaLine,
-                          size: 50)
-                Slider(value: $profile.targetWeightKg, in: targetWeightRange, step: 0.1)
-                HStack {
-                    Text(Units.weightString(targetWeightRange.lowerBound, profile.units, decimals: 0))
-                    Spacer()
-                    Text(Units.weightString(targetWeightRange.upperBound, profile.units, decimals: 0))
-                }
-                .font(.caption)
-                .monospacedDigit()
-                .foregroundStyle(.secondary)
-
-                Callout(symbol: "ruler",
-                        text: "A weight that puts your BMI in the healthy range for your height is \(Units.weightString(healthyRange.lowerBound, profile.units, decimals: 0)) to \(Units.weightString(healthyRange.upperBound, profile.units, decimals: 0)). BMI describes a population rather than a person, so treat it as a signpost.")
-                if profile.targetWeightKg < healthyRange.lowerBound {
-                    Callout(symbol: "exclamationmark.circle",
-                            text: "That sits below the healthy range for your height. It can be the right call, and Plate will still do the maths, but it is worth a word with a doctor first.",
-                            tint: .orange)
-                }
-            }
-        }
-    }
-
-    private var healthyRange: ClosedRange<Double> {
-        BodyComposition.healthyWeightRange(heightCm: profile.heightCm)
-    }
-
-    private var targetWeightRange: ClosedRange<Double> {
-        let current = profile.weightKg
-        if profile.goal == .gain { return current...(current * 1.35) }
-        let lowest = min(current - 2, max(35, current * 0.55))
-        return lowest...current
-    }
-
-    private var targetDeltaLine: String {
-        let change = abs(profile.targetWeightKg - profile.weightKg)
-        guard change > 0.05 else { return "the same as today" }
-        let word = profile.targetWeightKg < profile.weightKg ? "to lose" : "to gain"
-        return "\(Units.weightString(change, profile.units, decimals: 1)) \(word)"
-    }
-
-    // 11. Pace
-
-    private var paceStep: some View {
-        OnboardingPage("How fast do you want to go?",
-                       "Slower is easier to keep and costs less muscle. Plate will not let you pick something unsafe.") {
-            VStack(spacing: 16) {
-                BigNumber(value: Units.weightString(profile.paceKgPerWeek, profile.units,
-                                                    decimals: profile.units == .metric ? 2 : 1),
-                          caption: "a week",
-                          size: 50)
-                Slider(value: $profile.paceKgPerWeek, in: paceRange, step: 0.05)
-                HStack {
-                    Text("Steady")
-                    Spacer()
-                    Text("Aggressive")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-                Callout(symbol: "speedometer",
-                        text: "The fastest Plate will aim for at your size is \(Units.weightString(paceCeiling, profile.units, decimals: 2)) a week.")
-                if isPaceCapped {
-                    Callout(symbol: "arrow.down.to.line", text: capReason, tint: .orange)
-                }
-            }
-            .onAppear {
-                profile.paceKgPerWeek = min(max(profile.paceKgPerWeek, paceRange.lowerBound), paceRange.upperBound)
-            }
-        }
-    }
-
-    private var paceRange: ClosedRange<Double> {
-        profile.goal == .gain ? 0.05...0.6 : 0.1...1.2
-    }
-
-    /// What the safety caps allow, read straight from the engine by asking for an absurd pace.
-    private var paceCeiling: Double {
-        var inputs = profile.inputs
-        inputs.paceKgPerWeek = 99
-        return NutritionMath.cappedPace(inputs)
-    }
-
-    private var isPaceCapped: Bool {
-        NutritionMath.cappedPace(profile.inputs) < profile.paceKgPerWeek - 0.001
-    }
-
-    private var capReason: String {
-        let capped = Units.weightString(NutritionMath.cappedPace(profile.inputs), profile.units, decimals: 2)
-        if profile.goal == .gain {
-            return "Your plan will aim at \(capped) a week. Muscle cannot be built faster than that at your training age, so anything quicker would arrive as fat."
-        }
-        return "Your plan will aim at \(capped) a week. Faster than that for your size and the weight coming off is increasingly muscle."
-    }
-
-    // 12. Tape measure
-
-    private var tapeIntroStep: some View {
-        OnboardingPage("Three measurements, one real number",
-                       "A tape round your neck and waist turns a guess into a body fat figure within about three points of a DEXA scan. It takes a minute.") {
-            VStack(spacing: 10) {
-                tapeBenefit("flame.fill", "A better resting burn",
-                            "Lean mass predicts resting energy better than weight does, so the whole plan sharpens.")
-                tapeBenefit("fork.knife", "Protein against lean mass",
-                            "Fat does not need feeding. Protein is set from the muscle you actually carry.")
-                tapeBenefit("speedometer", "A safe pace for your level",
-                            "How fast you can lose depends on how much fat there is to lose.")
-                Callout(symbol: "hand.raised",
-                        text: "Skip it if you have no tape to hand. Plate falls back to a BMI estimate and says so wherever it shows the number.")
-            }
-        }
-    }
-
-    private func tapeBenefit(_ symbol: String, _ title: String, _ detail: String) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Image(systemName: symbol)
-                .font(.title3)
-                .foregroundStyle(Color.accentColor)
-                .frame(width: 28)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.body.weight(.semibold))
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(16)
-        .background(SelectionBackground(selected: false))
-    }
-
-    private func skipTape() {
-        withAnimation(.flow) {
-            profile.neckCm = nil
-            profile.waistCm = nil
-            profile.hipCm = nil
-            profile.targetBodyFat = nil
-            tapeSkipped = true
-            movingForward = true
-            step = .focus
-        }
-        selectionTick += 1
-    }
+    // Body fat
 
     private var tapeStep: some View {
         OnboardingPage("Measure up",
@@ -776,8 +1054,6 @@ struct OnboardingView: View {
         }
     }
 
-    // 13. Target body fat
-
     private var targetBodyFatStep: some View {
         OnboardingPage("What would you like to get down to?",
                        "Body fat is a better target than weight, because it does not care whether the scale moves.") {
@@ -799,7 +1075,10 @@ struct OnboardingView: View {
                     Callout(symbol: "scalemass",
                             text: "Holding every gram of muscle, that lands you at about \(Units.weightString(implied, profile.units, decimals: 1)).")
                     Button {
-                        pick { profile.targetWeightKg = implied }
+                        pick {
+                            profile.targetWeightKg = implied
+                            targetWeightTouched = true
+                        }
                     } label: {
                         Label("Use that as my target weight", systemImage: "arrow.down.circle")
                     }
@@ -837,61 +1116,7 @@ struct OnboardingView: View {
                                                targetBodyFat: targetBodyFatValue)
     }
 
-    // 14. Focus areas
-
-    private var focusStep: some View {
-        OnboardingPage("Anywhere in particular?",
-                       "Up to three. This changes the advice Plate gives you, not the calorie maths.") {
-            VStack(alignment: .leading, spacing: 14) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
-                          spacing: 10) {
-                    ForEach(BodyArea.allCases) { area in
-                        let chosen = profile.focusAreas.contains(area)
-                        ChoiceCard(symbol: area.symbol, label: area.label, selected: chosen) {
-                            toggleArea(area)
-                        }
-                        .disabled(!chosen && profile.focusAreas.count >= 3)
-                        .opacity(!chosen && profile.focusAreas.count >= 3 ? 0.4 : 1)
-                    }
-                }
-                if !profile.focusAreas.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("And there you want to be").font(.subheadline.weight(.semibold))
-                        Picker("Area goal", selection: areaGoalBinding) {
-                            ForEach(AreaGoal.allCases) { Text($0.label).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-                    }
-                }
-                Text(FocusGuidance.spotReductionNote)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-    }
-
-    private func toggleArea(_ area: BodyArea) {
-        var chosen = profile.focusAreas
-        if let index = chosen.firstIndex(of: area) {
-            chosen.remove(at: index)
-        } else if chosen.count < 3 {
-            chosen.append(area)
-        } else {
-            return
-        }
-        pick { profile.focusAreas = chosen }
-    }
-
-    private var areaGoalBinding: Binding<AreaGoal> {
-        Binding(get: { profile.areaGoal },
-                set: { picked in
-                    profile.areaGoal = picked
-                    selectionTick += 1
-                })
-    }
-
-    // 15. Diet style
+    // How you eat
 
     private var dietStep: some View {
         OnboardingPage("How do you like to eat?",
@@ -907,8 +1132,6 @@ struct OnboardingView: View {
             }
         }
     }
-
-    // 16. Foods to avoid
 
     private var avoidsStep: some View {
         OnboardingPage("Anything you do not eat?",
@@ -977,8 +1200,6 @@ struct OnboardingView: View {
         newAvoid = ""
     }
 
-    // 17. Meal pattern
-
     private var mealPatternStep: some View {
         OnboardingPage("How do your days usually look?",
                        "Meal timing does not change what you lose. It changes whether you make it to bedtime without raiding the fridge.") {
@@ -1002,8 +1223,6 @@ struct OnboardingView: View {
             ? "Everything in one sitting."
             : "Roughly \(each) calories a sitting at your target."
     }
-
-    // 18. Calorie cycling
 
     private var cyclingStep: some View {
         OnboardingPage("Same calories every day?",
@@ -1043,7 +1262,59 @@ struct OnboardingView: View {
         return "\(split.label): about \(split.higher) calories. Every other day: \(split.lower)."
     }
 
-    // 19. Drinks
+    // Habits
+
+    private var focusStep: some View {
+        OnboardingPage("Anywhere in particular?",
+                       "Up to three. This changes the advice Plate gives you, not the calorie maths.") {
+            VStack(alignment: .leading, spacing: 14) {
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 10), count: 3),
+                          spacing: 10) {
+                    ForEach(BodyArea.allCases) { area in
+                        let chosen = profile.focusAreas.contains(area)
+                        ChoiceCard(symbol: area.symbol, label: area.label, selected: chosen) {
+                            toggleArea(area)
+                        }
+                        .disabled(!chosen && profile.focusAreas.count >= 3)
+                        .opacity(!chosen && profile.focusAreas.count >= 3 ? 0.4 : 1)
+                    }
+                }
+                if !profile.focusAreas.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("And there you want to be").font(.subheadline.weight(.semibold))
+                        Picker("Area goal", selection: areaGoalBinding) {
+                            ForEach(AreaGoal.allCases) { Text($0.label).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                    }
+                }
+                Text(FocusGuidance.spotReductionNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    private func toggleArea(_ area: BodyArea) {
+        var chosen = profile.focusAreas
+        if let index = chosen.firstIndex(of: area) {
+            chosen.remove(at: index)
+        } else if chosen.count < 3 {
+            chosen.append(area)
+        } else {
+            return
+        }
+        pick { profile.focusAreas = chosen }
+    }
+
+    private var areaGoalBinding: Binding<AreaGoal> {
+        Binding(get: { profile.areaGoal },
+                set: { picked in
+                    profile.areaGoal = picked
+                    selectionTick += 1
+                })
+    }
 
     private var drinksStep: some View {
         OnboardingPage("How many drinks in a normal week?",
@@ -1079,8 +1350,6 @@ struct OnboardingView: View {
         return "Around \(low) to \(high) calories a week, which is \(low / 7) to \(high / 7) a day. Log them like any other food and the numbers stay honest."
     }
 
-    // 20. Obstacles
-
     private var obstaclesStep: some View {
         OnboardingPage("What has got in the way before?",
                        "Pick as many as fit. Plate uses them to decide which nudges to show, nothing else.") {
@@ -1110,7 +1379,7 @@ struct OnboardingView: View {
         pick { profile.obstacles = chosen }
     }
 
-    // 21. Apple Health, then the key
+    // Setup
 
     private var healthStep: some View {
         OnboardingPage("Apple Health",
@@ -1188,24 +1457,13 @@ struct OnboardingView: View {
         }
     }
 
-    // 22. Working it out
-
-    private var generatingStep: some View {
-        GeneratingView(lines: ["Working out your resting burn",
-                               "Adding everyday movement and training",
-                               "Checking a safe pace",
-                               "Balancing your macros"]) {
-            advance()
-        }
-    }
-
-    // 23. The plan
+    // MARK: The plan
 
     private var planStep: some View {
         ScrollView {
             VStack(spacing: 16) {
                 VStack(spacing: 2) {
-                    Text("Your plan is ready")
+                    Text(lastChunk == nil ? "Your plan is ready" : "Your plan, updated")
                         .font(.subheadline.weight(.semibold))
                         .foregroundStyle(.secondary)
                     Text("\(plan.calories)")
@@ -1218,6 +1476,8 @@ struct OnboardingView: View {
                 }
                 .padding(.top, 2)
                 .accessibilityElement(children: .combine)
+
+                changeCallout
 
                 HStack(alignment: .top, spacing: 10) {
                     MacroRing(name: "Protein", grams: plan.protein, share: macroShares.protein, color: .protein)
@@ -1256,6 +1516,8 @@ struct OnboardingView: View {
                     Callout(symbol: "hand.raised", text: note, tint: .orange)
                 }
 
+                refineCard
+
                 VStack(spacing: 8) {
                     Text("Resting burn from \(plan.method).")
                         .font(.caption2)
@@ -1272,6 +1534,75 @@ struct OnboardingView: View {
             .padding(.bottom, 12)
         }
         .scrollBounceBehavior(.basedOnSize)
+    }
+
+    @ViewBuilder private var changeCallout: some View {
+        if let chunk = lastChunk, let before = planBefore {
+            Callout(symbol: "sparkles", text: changeLine(chunk, from: before, to: plan), tint: .accentColor)
+        }
+    }
+
+    /// What a run of questions actually moved. Saying nothing moved is worth as much as saying what
+    /// did, because it tells you the defaults were already right for you.
+    private func changeLine(_ chunk: Chunk, from before: NutritionMath.Plan, to now: NutritionMath.Plan) -> String {
+        var moves: [String] = []
+        if before.calories != now.calories { moves.append("calories from \(before.calories) to \(now.calories)") }
+        if before.protein != now.protein { moves.append("protein from \(before.protein) g to \(now.protein) g") }
+        if before.method != now.method { moves.append("your resting burn onto \(now.method)") }
+        guard !moves.isEmpty else {
+            return "\(chunk.title) answered. Nothing moved, which means the defaults already matched you."
+        }
+        return "\(chunk.title) answered. That moved \(sentenceList(moves))."
+    }
+
+    private func sentenceList(_ parts: [String]) -> String {
+        guard parts.count > 1 else { return parts.first ?? "" }
+        return parts.dropLast().joined(separator: ", ") + " and " + (parts.last ?? "")
+    }
+
+    private var refineCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Make it sharper")
+                    .font(.subheadline.weight(.semibold))
+                Text("Optional. Each part is a few questions, says what it improves before it starts, and hands you straight back here.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            ForEach(Self.chunks) { chunk in
+                Button { start(chunk) } label: { chunkRow(chunk) }
+                    .buttonStyle(PressableStyle())
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .card()
+    }
+
+    private func chunkRow(_ chunk: Chunk) -> some View {
+        let done = doneChunks.contains(chunk.id)
+        return HStack(spacing: 12) {
+            Image(systemName: chunk.symbol)
+                .font(.body)
+                .foregroundStyle(done ? Color.secondary : Color.accentColor)
+                .frame(width: 24)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(chunk.title)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                Text(chunk.promise)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            Spacer(minLength: 8)
+            Image(systemName: done ? "checkmark.circle.fill" : "chevron.right")
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(done ? Color.accentColor : Color.secondary)
+        }
+        .multilineTextAlignment(.leading)
+        .padding(.vertical, 4)
+        .contentShape(Rectangle())
     }
 
     private func planRow(_ symbol: String, _ title: String, _ value: String) -> some View {

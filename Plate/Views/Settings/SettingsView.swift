@@ -15,6 +15,7 @@ struct SettingsView: View {
     @State private var exportURL: URL?
     @State private var confirmReset = false
     @State private var showAvoidSheet = false
+    @State private var showRefine = false
     @State private var newAvoid = ""
 
     /// True when an answer has changed since the targets were last worked out.
@@ -45,6 +46,11 @@ struct SettingsView: View {
                 Button("Delete everything", role: .destructive) { reset() }
             }
             .sheet(isPresented: $showAvoidSheet) { avoidSheet }
+            // The same flow onboarding uses, opened at the plan so only the optional runs are on
+            // offer. Answers written here are the same answers, so nothing is duplicated.
+            .fullScreenCover(isPresented: $showRefine) {
+                OnboardingView(profile: profile, mode: .refinement) { showRefine = false }
+            }
         }
     }
 
@@ -72,11 +78,19 @@ struct SettingsView: View {
                 }
             }
             Button {
+                showRefine = true
+            } label: {
+                Label("Make your plan sharper", systemImage: "sparkles")
+                    .font(.subheadline)
+            }
+            Button {
                 profile.onboarded = false
             } label: {
                 Label("Answer the setup questions again", systemImage: "text.badge.checkmark")
                     .font(.subheadline)
             }
+        } footer: {
+            Text("The optional questions sharpen one number each. You can answer a part at a time and stop whenever you like.")
         }
     }
 
@@ -330,7 +344,7 @@ struct SettingsView: View {
         }
     }
 
-    private var analysisSection: some View {
+    @ViewBuilder private var analysisSection: some View {
         Section {
             Picker("Provider", selection: $provider) {
                 ForEach(AIProvider.allCases) { Text($0.label).tag($0) }
@@ -376,6 +390,33 @@ struct SettingsView: View {
             Text("Photo analysis")
         } footer: {
             Text("\(provider.consoleHint) Needed for photo, label, and description logging. Stored in the keychain, sent only to \(provider.host). Barcodes and search use Open Food Facts and need no key.")
+        }
+
+        spendSection
+    }
+
+    /// What the scanning has actually cost. A scan is fractions of a cent, which is small enough to
+    /// feel like nothing and add up anyway, so the running total is on screen rather than waiting on
+    /// a bill at the end of the month.
+    @ViewBuilder private var spendSection: some View {
+        let usage = AIUsage.summary
+        if usage.scans > 0 {
+            Section {
+                LabeledContent("Scans", value: "\(usage.scans)")
+                LabeledContent("Spent", value: usage.dollars < 0.01
+                               ? "under a cent"
+                               : String(format: "$%.2f", usage.dollars))
+                if let perDollar = usage.scansPerDollar {
+                    LabeledContent("A dollar buys", value: "about \(perDollar) more")
+                }
+                Button("Reset the count") { AIUsage.reset() }
+            } header: {
+                Text("What it has cost")
+            } footer: {
+                if let since = usage.since {
+                    Text("Counted from \(since.formatted(date: .abbreviated, time: .omitted)) using published token prices, so treat it as close rather than exact. Your provider's own dashboard is the real bill.")
+                }
+            }
         }
     }
 

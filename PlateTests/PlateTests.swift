@@ -475,6 +475,129 @@ final class ProfileTests: XCTestCase {
     }
 }
 
+final class GoalChoiceTests: XCTestCase {
+    func testTickingBothLoseFatAndBuildMuscleIsARecomposition() {
+        XCTAssertEqual(Goal.from([.loseFat, .buildMuscle]), .recomp)
+        XCTAssertEqual(Goal.from([.loseFat]), .lose)
+        XCTAssertEqual(Goal.from([.buildMuscle]), .gain)
+        XCTAssertEqual(Goal.from([.maintain]), .maintain)
+    }
+
+    func testNothingTickedIsNotAnAnswerYet() {
+        XCTAssertNil(Goal.from([]))
+        XCTAssertNil(Goal.from(Goal.toggling(.loseFat, in: [.loseFat])))
+    }
+
+    func testMaintainClearsTheOthersAndTheOthersClearMaintain() {
+        var chosen = Goal.toggling(.maintain, in: [.loseFat, .buildMuscle])
+        XCTAssertEqual(chosen, [.maintain])
+        chosen = Goal.toggling(.buildMuscle, in: chosen)
+        XCTAssertEqual(chosen, [.buildMuscle])
+        XCTAssertEqual(Goal.from(chosen), .gain)
+    }
+
+    func testTwoTicksCanLiveTogetherWhenNeitherIsMaintain() {
+        let chosen = Goal.toggling(.buildMuscle, in: Goal.toggling(.loseFat, in: []))
+        XCTAssertEqual(chosen, [.loseFat, .buildMuscle])
+        XCTAssertEqual(Goal.from(chosen), .recomp)
+    }
+
+    func testEveryGoalSurvivesARoundTripThroughTheTicks() {
+        for goal in Goal.allCases {
+            XCTAssertEqual(Goal.from(goal.choices), goal, "\(goal.rawValue) did not come back")
+        }
+    }
+
+    func testTheStoredRawValuesAreUntouched() {
+        // SwiftData reads these strings off disk, so the picker may change but they may not.
+        XCTAssertEqual(Goal.allCases.map(\.rawValue), ["lose", "maintain", "gain", "recomp"])
+    }
+}
+
+final class OnboardingFlowTests: XCTestCase {
+    func testThePlanIsReachedInEightScreens() {
+        // Working it out is a pause, not a question, so it is not one of the eight.
+        let asked = OnboardingView.Step.essentials.filter { $0 != .generating }
+        XCTAssertEqual(asked.count, 8)
+        XCTAssertEqual(asked.first, .welcome)
+        XCTAssertEqual(asked[1], .goal, "the goal frames every question after it")
+        XCTAssertEqual(asked.last, .plan)
+        XCTAssertFalse(OnboardingView.Step.essentials.contains(.trainingStyle),
+                       "nothing optional belongs in the run that has to be finished")
+
+        // Holding steady drops the two screens that only a moving target needs.
+        let holding = asked.filter { $0 != .targetWeight && $0 != .pace }
+        XCTAssertEqual(holding.count, 6)
+    }
+
+    func testEveryOptionalRunEndsAndNoneOverlap() {
+        let steps = OnboardingView.chunks.flatMap(\.steps)
+        XCTAssertEqual(Set(steps).count, steps.count, "a question belongs to one run only")
+        for chunk in OnboardingView.chunks {
+            XCTAssertGreaterThan(chunk.steps.count, 1, "\(chunk.title) has an intro and nothing else")
+            XCTAssertFalse(chunk.steps.contains(.plan), "the plan is where a run ends, not part of it")
+            XCTAssertFalse(chunk.promise.isEmpty, "\(chunk.title) does not say what it buys")
+        }
+    }
+
+    func testSkippingEveryOptionalQuestionLeavesTheTargetWhereItWas() {
+        // Exactly what phase one asks for, and not one answer more.
+        let p = Profile()
+        p.sex = .male
+        p.birthDate = Calendar.current.date(byAdding: .year, value: -30, to: Date())
+        p.heightCm = 180
+        p.weightKg = 80
+        p.dailyActivity = .desk
+        p.goal = .lose
+        p.targetWeightKg = 74
+        p.paceKgPerWeek = 0.5
+
+        // The defaults the skipped questions leave behind, written out rather than read back off
+        // the profile, so moving any of them fails here rather than quietly moving someone's target.
+        XCTAssertEqual(p.trainingStyle, .none)
+        XCTAssertEqual(p.trainingDaysPerWeek, 0)
+        XCTAssertEqual(p.trainingMinutes, 45)
+        XCTAssertEqual(p.experience, .none)
+        XCTAssertEqual(p.diet, .balanced)
+        XCTAssertEqual(p.mealPattern, .three)
+        XCTAssertEqual(p.cycling, .even)
+        XCTAssertEqual(p.drinksPerWeek, 0)
+        XCTAssertNil(p.neckCm)
+        XCTAssertNil(p.waistCm)
+        XCTAssertNil(p.targetBodyFat)
+        XCTAssertNil(p.trustedBodyFat)
+        XCTAssertTrue(p.focusAreas.isEmpty)
+        XCTAssertTrue(p.obstacles.isEmpty)
+        XCTAssertTrue(p.avoids.isEmpty)
+
+        let expected = NutritionMath.Inputs(sex: .male, age: 30, heightCm: 180, weightKg: 80,
+                                            activity: .light, goal: .lose, paceKgPerWeek: 0.5,
+                                            bodyFatPercent: nil, dailyActivity: .desk,
+                                            trainingDaysPerWeek: 0, trainingMinutes: 45,
+                                            trainingStyle: .none, experience: .none, diet: .balanced)
+        XCTAssertEqual(p.inputs, expected)
+
+        let plan = NutritionMath.plan(for: expected)
+        p.recalculateTargets()
+        XCTAssertEqual(p.calorieTarget, plan.calories)
+        XCTAssertEqual(p.proteinTarget, plan.protein)
+        XCTAssertEqual(p.carbTarget, plan.carbs)
+        XCTAssertEqual(p.fatTarget, plan.fat)
+        XCTAssertEqual(p.fiberTarget, plan.fiber)
+        XCTAssertEqual(p.waterMl, plan.waterMl)
+        XCTAssertEqual(plan.method, "Mifflin-St Jeor")
+    }
+
+    func testTheTrainingLoadQuestionNamesWhatWasPicked() {
+        XCTAssertTrue(TrainingStyle.strength.loadQuestion.contains("lifting"))
+        XCTAssertTrue(TrainingStyle.cardio.loadQuestion.contains("running"))
+        XCTAssertTrue(TrainingStyle.yoga.loadQuestion.contains("yoga"))
+        for style in TrainingStyle.allCases {
+            XCTAssertTrue(style.loadQuestion.hasSuffix("?"), "\(style.rawValue) does not ask anything")
+        }
+    }
+}
+
 final class MeasurementTests: XCTestCase {
     func testTapeMeasurementFillsInBodyFat() {
         let m = BodyMeasurement()
@@ -552,17 +675,86 @@ final class MealTests: XCTestCase {
         XCTAssertEqual(meal.calories, 410 + 247.5, accuracy: 0.01)
     }
 
-    func testAnalyzerParsing() throws {
+    /// The model reports totals for the portion eaten. The app stores per unit values, so a 1.5 cup
+    /// serving of 308 kcal has to come back as 205 kcal a cup, and scaling it must return the total.
+    func testAnalyzerParsingUsesTotals() throws {
         let json = """
-        {"meal_name":"Chicken and rice","items":[{"name":"Rice","quantity":1.5,"unit":"cup","grams_per_unit":158,
-        "calories_per_unit":205,"protein_g_per_unit":4,"carbs_g_per_unit":45,"fat_g_per_unit":0.4,"fiber_g_per_unit":0.6,
-        "sugar_g_per_unit":0,"sodium_mg_per_unit":2,"confidence":0.8}],"confidence":0.7,"health_score":7,"notes":"Plain."}
+        {"m":"Chicken and rice","i":[{"n":"Rice","q":1.5,"u":"cup","g":237,
+        "c":307.5,"p":6,"cb":67.5,"f":0.6,"fb":0.9,"s":0,"so":3,"cf":0.8}],
+        "cf":0.7,"h":7,"t":"Plain."}
         """
         let meal = try FoodAnalyzer.parse(Data(json.utf8), source: .photo)
         XCTAssertEqual(meal.name, "Chicken and rice")
         XCTAssertEqual(meal.totals.calories, 307.5, accuracy: 0.01)
+        XCTAssertEqual(meal.items[0].base.calories, 205, accuracy: 0.01)
+        XCTAssertEqual(meal.items[0].gramsPerUnit ?? 0, 158, accuracy: 0.01)
         XCTAssertEqual(meal.items[0].grams ?? 0, 237, accuracy: 0.01)
         XCTAssertEqual(meal.healthScore, 7)
+        XCTAssertEqual(meal.notes, "Plain.")
+    }
+
+    /// A quantity of zero must not divide by zero or wipe the numbers out.
+    func testAnalyzerParsingSurvivesZeroQuantity() throws {
+        let json = """
+        {"m":"Snack","i":[{"n":"Bar","q":0,"u":"piece","g":40,
+        "c":180,"p":5,"cb":22,"f":8,"fb":2,"s":12,"so":90,"cf":0.6}],
+        "cf":0.6,"h":5,"t":"One bar."}
+        """
+        let meal = try FoodAnalyzer.parse(Data(json.utf8), source: .photo)
+        XCTAssertEqual(meal.items[0].quantity, 1)
+        XCTAssertEqual(meal.totals.calories, 180, accuracy: 0.01)
+    }
+
+    /// The failure this guard exists for: the model reads a 100 g portion as quantity 100 and hands
+    /// back the whole portion's calories in every field, giving 16,500 kcal of chicken breast.
+    func testImplausibleCaloriesAreRepaired() {
+        let runaway = Nutrients(calories: 16500, protein: 31, carbs: 0, fat: 3.6,
+                                fiber: 0, sugar: 0, sodium: 74)
+        let fixed = FoodAnalyzer.plausible(runaway, grams: 100)
+        XCTAssertFalse(fixed.trusted)
+        // 31 g protein and 3.6 g fat is about 156 kcal, which is what a chicken breast actually is.
+        XCTAssertEqual(fixed.nutrients.calories, 31 * 4 + 3.6 * 9, accuracy: 0.01)
+        XCTAssertLessThanOrEqual(fixed.nutrients.calories / 100, FoodAnalyzer.maxKcalPerGram)
+    }
+
+    func testPlausibleLeavesHonestFoodAlone() {
+        // Olive oil is the densest real food there is, at 9 kcal a gram, and must survive untouched.
+        let oil = Nutrients(calories: 119, protein: 0, carbs: 0, fat: 13.5,
+                            fiber: 0, sugar: 0, sodium: 0)
+        let checked = FoodAnalyzer.plausible(oil, grams: 13.5)
+        XCTAssertTrue(checked.trusted)
+        XCTAssertEqual(checked.nutrients.calories, 119, accuracy: 0.01)
+    }
+
+    func testPlausibleFallsBackWhenMacrosAreAlsoImpossible() {
+        // Nothing to cross-check against, so it clamps to the densest food that could weigh this.
+        let nonsense = Nutrients(calories: 9000, protein: 0, carbs: 0, fat: 0,
+                                 fiber: 0, sugar: 0, sodium: 0)
+        let checked = FoodAnalyzer.plausible(nonsense, grams: 50)
+        XCTAssertFalse(checked.trusted)
+        XCTAssertEqual(checked.nutrients.calories, 50 * FoodAnalyzer.maxKcalPerGram, accuracy: 0.01)
+    }
+
+    /// Every key in the request schema has to be one `parse` reads back, or a scan is paid for and
+    /// then thrown away. This catches the two drifting apart.
+    func testAnalyzerSchemaMatchesParser() throws {
+        let properties = FoodAnalyzer.mealSchema["properties"] as! [String: Any]
+        XCTAssertEqual(Set(properties.keys), ["m", "i", "cf", "h", "t"])
+        let items = properties["i"] as! [String: Any]
+        let item = items["items"] as! [String: Any]
+        let itemKeys = Set((item["properties"] as! [String: Any]).keys)
+        XCTAssertEqual(itemKeys, ["n", "q", "u", "g", "c", "p", "cb", "f", "fb", "s", "so", "cf"])
+        // Required lists must not name a key the schema does not declare.
+        XCTAssertTrue(Set(item["required"] as! [String]).isSubset(of: itemKeys))
+        XCTAssertTrue(Set(FoodAnalyzer.mealSchema["required"] as! [String]).isSubset(of: Set(properties.keys)))
+    }
+
+    func testUsageCostMatchesPublishedRates() {
+        // 1,353 input and 984 output tokens on Flash-Lite, the measured shape of a large meal.
+        let dollars = AIUsage.cost(model: "gemini-3.5-flash-lite", input: 1353, output: 984)
+        XCTAssertEqual(dollars, 1353 * 0.30 / 1e6 + 984 * 2.50 / 1e6, accuracy: 1e-9)
+        // An unknown model must never be counted as free.
+        XCTAssertGreaterThan(AIUsage.cost(model: "gemini-9-unknown", input: 1000, output: 1000), 0)
     }
 
     func testOpenFoodFactsParsing() {
@@ -589,17 +781,21 @@ final class MealTests: XCTestCase {
 }
 
 final class GeminiSchemaTests: XCTestCase {
-    func testSchemaConversion() {
+    func testSchemaConversion() throws {
         let out = GeminiClient.geminiSchema(FoodAnalyzer.mealSchema)
         XCTAssertEqual(out["type"] as? String, "OBJECT")
         XCTAssertNil(out["additionalProperties"])
-        let props = out["properties"] as! [String: Any]
-        let items = props["items"] as! [String: Any]
+        let props = try XCTUnwrap(out["properties"] as? [String: Any])
+        // "i" is the component array. The keys are one or two letters because every one of them is
+        // billed as output on every scan.
+        let items = try XCTUnwrap(props["i"] as? [String: Any])
         XCTAssertEqual(items["type"] as? String, "ARRAY")
-        let item = items["items"] as! [String: Any]
+        let item = try XCTUnwrap(items["items"] as? [String: Any])
         XCTAssertEqual(item["type"] as? String, "OBJECT")
-        XCTAssertEqual(((item["properties"] as! [String: Any])["quantity"] as! [String: Any])["type"] as? String, "NUMBER")
-        XCTAssertEqual((item["required"] as! [String]).count, 12)
+        let itemProps = try XCTUnwrap(item["properties"] as? [String: Any])
+        XCTAssertEqual((itemProps["q"] as? [String: Any])?["type"] as? String, "NUMBER")
+        XCTAssertEqual((itemProps["n"] as? [String: Any])?["type"] as? String, "STRING")
+        XCTAssertEqual((item["required"] as? [String])?.count, 12)
     }
 }
 
@@ -624,11 +820,22 @@ final class GeminiModelTests: XCTestCase {
     }
 
     func testCandidatesPutRememberedFirstWithoutRepeats() {
-        let list = GeminiClient.candidates(remembered: "gemini-3.5-flash")
-        XCTAssertEqual(list.first, "gemini-3.5-flash")
+        let remembered = GeminiClient.preferred.last!
+        let list = GeminiClient.candidates(remembered: remembered)
+        XCTAssertEqual(list.first, remembered)
         XCTAssertEqual(list.count, GeminiClient.preferred.count)
         XCTAssertEqual(GeminiClient.candidates(remembered: nil), GeminiClient.preferred)
         XCTAssertEqual(GeminiClient.candidates(remembered: "gemini-9-flash").first, "gemini-9-flash")
+    }
+
+    /// The fallback chain is Lite only on purpose. A full size Flash model bills output at up to
+    /// thirteen times the Lite rate, so one busy minute used to turn into a bill nobody asked for.
+    func testFallbackChainIsLiteOnly() {
+        for model in GeminiClient.preferred {
+            XCTAssertTrue(model.contains("lite"), "\(model) is not a Lite model")
+        }
+        XCTAssertEqual(GeminiClient.preferred.first, "gemini-3.1-flash-lite",
+                       "the cheapest model that benchmarked well should be tried first")
     }
 
     func testDiscoveryKeepsGeneralFlashNewestFirst() {
@@ -658,7 +865,11 @@ final class GeminiModelTests: XCTestCase {
 
     func testLiteIsTriedFirst() {
         XCTAssertTrue(GeminiClient.preferred[0].contains("lite"))
-        XCTAssertTrue(GeminiClient.preferred.contains("gemini-3.6-flash"), "full size backup for when Lite is busy")
+        // The full size models used to sit at the end of this list. They were removed once measuring
+        // showed 3.5 Flash bills output at $9 per million against Lite's $1.50, so a busy Lite quietly
+        // cost thirteen times more. When every Lite is busy the scan now fails and can be retried.
+        XCTAssertFalse(GeminiClient.preferred.contains("gemini-3.5-flash"))
+        XCTAssertFalse(GeminiClient.preferred.contains("gemini-3.6-flash"))
     }
 }
 
