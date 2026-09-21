@@ -55,8 +55,11 @@ struct Coach {
         var text: String { lines.joined(separator: "\n") }
     }
 
+    /// `extraBurnToday` is passed in rather than read here, because only the screen holding the
+    /// HealthKit snapshot knows it, and a brief that invented its own figure would be one more place
+    /// for the app to disagree with itself.
     static func brief(profile: Profile, meals: [MealEntry], weights: [WeightEntry],
-                      today: Date = Date()) -> Brief {
+                      extraBurnToday: Int = 0, today: Date = Date()) -> Brief {
         var lines: [String] = []
         let units = profile.units
 
@@ -66,8 +69,27 @@ struct Coach {
         var about = "They are \(profile.age) and \(profile.sex.label.lowercased())."
         about += " Goal: \(profile.goal.label.lowercased())."
         lines.append(about)
-        lines.append("Daily targets: \(profile.calorieTarget) kcal, \(profile.proteinTarget) g protein, "
-                     + "\(profile.carbTarget) g carbs, \(profile.fatTarget) g fat, \(profile.fiberTarget) g fiber.")
+        lines.append("Baseline daily targets: \(profile.calorieTarget) kcal, \(profile.proteinTarget) g protein, "
+                     + "\(profile.carbTarget) g carbs, \(profile.fatTarget) g fat, \(profile.fiberTarget) g fiber. "
+                     + "Limits: \(profile.sugarLimit) g added sugar, \(profile.sodiumLimit) mg sodium.")
+
+        // The number on the Today screen, not the baseline. Rollover and earned calories move it, and
+        // quoting the baseline here made the app contradict itself by exactly the rolled over amount.
+        let target = DayStats.dayTarget(profile: profile, meals: meals, day: today, extraBurn: extraBurnToday)
+        var todayLine = "Today's calorie allowance is \(target.total) kcal, which is what the app shows them."
+        if !target.adjustments.isEmpty {
+            let parts = target.adjustments.map { "\($0.amount > 0 ? "+" : "")\($0.amount) \($0.label)" }
+            todayLine += " That is the \(target.base) baseline " + parts.joined(separator: ", ") + "."
+        }
+        lines.append(todayLine)
+
+        let eatenToday = DayStats.totals(on: today, meals: meals)
+        if eatenToday.calories > 0 {
+            let left = target.total - Int(eatenToday.calories.rounded())
+            lines.append("So far today: \(Int(eatenToday.calories.rounded())) kcal, "
+                         + "\(Int(eatenToday.protein.rounded())) g protein. "
+                         + (left >= 0 ? "\(left) kcal left." : "\(abs(left)) kcal over."))
+        }
 
         // Weight and where it is going, which is the question most people actually have.
         let samples = weights.map { TrendEngine.Sample(date: $0.date, weightKg: $0.weightKg) }

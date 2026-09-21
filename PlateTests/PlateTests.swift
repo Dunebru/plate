@@ -1568,3 +1568,80 @@ final class ExerciseCalorieTests: XCTestCase {
         XCTAssertEqual(extra(measured, i), 0, accuracy: 0.01)
     }
 }
+
+/// The bug this pins: Today showed 2,640 while the Ask tab said 2,390, and said 485 over when the
+/// ring said 235 over. Both gaps were exactly 250, the rollover cap. Today used an adjusted target
+/// and everything else quoted the stored baseline, so the app contradicted itself by however much
+/// had rolled over. There is one function now and both screens must read it.
+final class DayTargetTests: XCTestCase {
+    private func profile(target: Int, rollover: Bool) -> Profile {
+        let p = Profile()
+        p.sex = .male
+        p.heightCm = 180
+        p.weightKg = 84
+        p.calorieTarget = target
+        p.rolloverCalories = rollover
+        p.addExerciseCalories = false
+        p.cycling = .even
+        return p
+    }
+
+    private func meal(kcal: Double, on day: Date) -> MealEntry {
+        let m = MealEntry(name: "Meal", date: day, source: .describe)
+        m.items = [MealItem(name: "Food", quantity: 1, unit: "serving", gramsPerUnit: nil,
+                            base: Nutrients(calories: kcal, protein: 0, carbs: 0, fat: 0,
+                                            fiber: 0, sugar: 0, sodium: 0), confidence: 1)]
+        m.recalculate()
+        return m
+    }
+
+    func testRolloverIsInTheDayTargetNotJustTheRing() {
+        let today = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let p = profile(target: 2390, rollover: true)
+        // 2,000 eaten against 2,390 leaves 390, capped at 250.
+        let target = DayStats.dayTarget(profile: p, meals: [meal(kcal: 2000, on: yesterday)], day: today)
+        XCTAssertEqual(target.base, 2390)
+        XCTAssertEqual(target.rollover, 250)
+        XCTAssertEqual(target.total, 2640)
+    }
+
+    func testTheAdjustmentIsExplainable() {
+        let today = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let p = profile(target: 2390, rollover: true)
+        let target = DayStats.dayTarget(profile: p, meals: [meal(kcal: 2000, on: yesterday)], day: today)
+        let labels = target.adjustments.map(\.label)
+        XCTAssertEqual(labels, ["rolled over"], "a day that only rolled over should say only that")
+        XCTAssertEqual(target.adjustments.first?.amount, 250)
+    }
+
+    func testRolloverOffMeansTheBaselineStands() {
+        let today = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let p = profile(target: 2390, rollover: false)
+        let target = DayStats.dayTarget(profile: p, meals: [meal(kcal: 2000, on: yesterday)], day: today)
+        XCTAssertEqual(target.total, 2390)
+        XCTAssertTrue(target.adjustments.isEmpty)
+    }
+
+    /// Earned calories are measured for today alone, so a day in the past must not collect them.
+    func testEarnedCaloriesOnlyApplyToToday() {
+        let p = profile(target: 2390, rollover: false)
+        p.addExerciseCalories = true
+        let past = Calendar.current.date(byAdding: .day, value: -3, to: Date())!
+        XCTAssertEqual(DayStats.dayTarget(profile: p, meals: [], day: past, extraBurn: 300).earned, 0)
+        XCTAssertEqual(DayStats.dayTarget(profile: p, meals: [], day: Date(), extraBurn: 300).earned, 300)
+    }
+
+    /// The brief the Ask tab is given has to carry the same number the ring shows.
+    func testTheBriefQuotesTodaysAllowanceNotTheBaseline() {
+        let today = Date()
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        let p = profile(target: 2390, rollover: true)
+        let meals = [meal(kcal: 2000, on: yesterday)]
+        let text = Coach.brief(profile: p, meals: meals, weights: [], today: today).text
+        XCTAssertTrue(text.contains("2640"), "the brief must quote today's allowance\n\(text)")
+        XCTAssertTrue(text.contains("rolled over"), "and say why it differs from the baseline")
+    }
+}

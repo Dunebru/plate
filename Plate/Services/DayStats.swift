@@ -4,6 +4,48 @@ import Foundation
 enum DayStats {
     static func sameDay(_ a: Date, _ b: Date) -> Bool { Calendar.current.isDate(a, inSameDayAs: b) }
 
+    /// What one particular day's calorie allowance actually is.
+    ///
+    /// The stored target is a baseline. A given day can differ from it for three reasons, and Today
+    /// has always shown the adjusted figure. This used to live inside the Today screen, which meant
+    /// anything else that quoted a target quoted the baseline instead and disagreed with the ring by
+    /// however much had rolled over. One function now, so they cannot drift apart again.
+    struct DayTarget: Equatable {
+        var base: Int
+        var cycling: Int       // signed, from calorie cycling
+        var rollover: Int      // yesterday's unspent calories, capped
+        var earned: Int        // movement beyond what the plan already assumed
+        var total: Int
+
+        /// The parts that moved today off the baseline, ready to be read aloud.
+        var adjustments: [(label: String, amount: Int)] {
+            [("calorie cycling", cycling), ("rolled over", rollover), ("earned by moving", earned)]
+                .filter { $0.1 != 0 }
+        }
+    }
+
+    static func dayTarget(profile: Profile, meals: [MealEntry], day: Date,
+                          extraBurn: Int = 0) -> DayTarget {
+        let base = profile.calorieTarget
+        var cycled = base
+        if let split = NutritionMath.daySplit(calories: base, cycling: profile.cycling,
+                                              trainingDaysPerWeek: profile.trainingDaysPerWeek),
+           profile.cycling == .weekends {
+            let weekday = Calendar.current.component(.weekday, from: day)
+            cycled = (weekday == 1 || weekday == 7) ? split.higher : split.lower
+        }
+        // Rollover is worked out against whichever day is being looked at, so it stays meaningful
+        // when scrolling back. Movement does not: it is only ever measured for today.
+        let rollover = profile.rolloverCalories
+            ? DayStats.rollover(target: base, meals: meals, today: day) : 0
+        let earned = (profile.addExerciseCalories && Calendar.current.isDateInToday(day)) ? extraBurn : 0
+        return DayTarget(base: base,
+                         cycling: cycled - base,
+                         rollover: rollover,
+                         earned: earned,
+                         total: cycled + rollover + earned)
+    }
+
     static func totals(on day: Date, meals: [MealEntry]) -> Nutrients {
         meals.filter { sameDay($0.date, day) }.reduce(Nutrients.zero) { $0 + $1.totals }
     }

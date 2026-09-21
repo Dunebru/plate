@@ -16,21 +16,14 @@ struct HomeView: View {
     private var streak: Int { DayStats.streak(meals: meals) }
     private var isToday: Bool { Calendar.current.isDateInToday(day) }
 
-    /// The number on the ring. Rollover and workout calories only apply to today.
-    private var calorieTarget: Int {
-        var target = profile.calorieTarget
-        if let split = NutritionMath.daySplit(calories: profile.calorieTarget, cycling: profile.cycling,
-                                              trainingDaysPerWeek: profile.trainingDaysPerWeek),
-           profile.cycling == .weekends {
-            let weekday = Calendar.current.component(.weekday, from: day)
-            target = (weekday == 1 || weekday == 7) ? split.higher : split.lower
-        }
-        if profile.rolloverCalories { target += DayStats.rollover(target: profile.calorieTarget, meals: meals, today: day) }
-        if profile.addExerciseCalories, isToday {
-            target += Int(extraBurnToday.rounded())
-        }
-        return target
+    /// The number on the ring. Worked out in `DayStats` so that anything else quoting a target for
+    /// this day, the Ask tab included, quotes the same one.
+    private var dayTarget: DayStats.DayTarget {
+        DayStats.dayTarget(profile: profile, meals: meals, day: day,
+                           extraBurn: Int(extraBurnToday.rounded()))
     }
+
+    private var calorieTarget: Int { dayTarget.total }
 
     /// How much of today's measured movement the plan has not already paid for.
     ///

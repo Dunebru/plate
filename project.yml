@@ -31,7 +31,7 @@ targets:
       properties:
         CFBundleDisplayName: Plate
         CFBundleShortVersionString: "1.1.0"
-        CFBundleVersion: "11"
+        CFBundleVersion: "12"
         UILaunchScreen: {}
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
@@ -49,7 +49,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.dunebru.plate
         PRODUCT_NAME: Plate
         MARKETING_VERSION: "1.1.0"
-        CURRENT_PROJECT_VERSION: "11"
+        CURRENT_PROJECT_VERSION: "12"
         TARGETED_DEVICE_FAMILY: "1"
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
         SUPPORTS_MACCATALYST: NO

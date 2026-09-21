@@ -11,6 +11,7 @@ struct CoachView: View {
     @Bindable var profile: Profile
     @Query(sort: \MealEntry.date, order: .reverse) private var meals: [MealEntry]
     @Query(sort: \WeightEntry.date, order: .reverse) private var weights: [WeightEntry]
+    @StateObject private var health = HealthStore.shared
 
     @State private var turns: [Coach.Turn] = []
     @State private var question = ""
@@ -41,6 +42,7 @@ struct CoachView: View {
                 }
             }
             .sensoryFeedback(.success, trigger: answered)
+            .task { await health.refreshToday() }
         }
     }
 
@@ -156,7 +158,12 @@ struct CoachView: View {
         }
         Task {
             do {
-                let brief = Coach.brief(profile: profile, meals: meals, weights: weights)
+                // The same figure Today adds to the ring, so the two screens quote one number.
+                let inputs = profile.inputs
+                let assumed = NutritionMath.tdee(inputs) - NutritionMath.bmr(inputs)
+                let earned = Int(max(0, health.activeEnergyToday - assumed).rounded())
+                let brief = Coach.brief(profile: profile, meals: meals, weights: weights,
+                                        extraBurnToday: earned)
                 let reply = try await Coach().answer(question: trimmed, brief: brief, history: history)
                 withAnimation(.flow) {
                     turns.append(Coach.Turn(role: .coach, text: reply))
