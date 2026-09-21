@@ -99,6 +99,18 @@ struct MainTabView: View {
                let choice = TabChoice(rawValue: args[index + 1]) {
                 tab = choice
             }
+            // Opens a logging flow directly, so screens behind a sheet can be looked at:
+            // --open camera | label | describe | quickAdd | repeat
+            if let index = args.firstIndex(of: "--open"), args.count > index + 1 {
+                switch args[index + 1] {
+                case "camera": launchRoute = .camera(.food)
+                case "label": launchRoute = .camera(.label)
+                case "describe": launchRoute = .describe
+                case "quickAdd": launchRoute = .quickAdd
+                case "repeat": launchRoute = .repeatMeal
+                default: break
+                }
+            }
             #endif
             if profile.writeToHealth, HealthStore.available {
                 await HealthStore.shared.requestAuthorization()

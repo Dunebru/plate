@@ -58,8 +58,18 @@ struct AddSheet: View {
                 ResultEditorView(meal: meal, image: resultImage, profile: profile, day: day) { dismiss() }
             }
             .onAppear {
-                guard !opened, let initialRoute else { return }
+                guard !opened else { return }
                 opened = true
+                #if DEBUG
+                // Opens the review editor on a canned estimate, so the correction loop can be walked
+                // without spending a scan. The numbers are deliberately wrong in the usual direction:
+                // a reference sized chicken breast where a large one was eaten.
+                if CommandLine.arguments.contains("--fake-estimate") {
+                    present(Self.cannedEstimate, nil)
+                    return
+                }
+                #endif
+                guard let initialRoute else { return }
                 path = [initialRoute]
             }
         }
@@ -71,6 +81,25 @@ struct AddSheet: View {
     private var analyzerContext: FoodAnalyzer.Context {
         FoodAnalyzer.Context(profile: profile, corrections: corrections)
     }
+
+    #if DEBUG
+    static let cannedEstimate = AnalyzedMeal(
+        name: "Chicken and rice",
+        items: [
+            AnalyzedMeal.Item(name: "Chicken breast", quantity: 1, unit: "serving", gramsPerUnit: 120,
+                              base: Nutrients(calories: 198, protein: 37, carbs: 0, fat: 4.3,
+                                              fiber: 0, sugar: 0, sodium: 89),
+                              confidence: 0.7),
+            AnalyzedMeal.Item(name: "White rice", quantity: 1, unit: "cup", gramsPerUnit: 158,
+                              base: Nutrients(calories: 205, protein: 4.3, carbs: 45, fat: 0.4,
+                                              fiber: 0.6, sugar: 0, sodium: 2),
+                              confidence: 0.7),
+        ],
+        notes: "Portions estimated from the photo.",
+        healthScore: 8,
+        confidence: 0.7,
+        source: .photo)
+    #endif
 
     private func present(_ meal: AnalyzedMeal, _ image: UIImage?) {
         resultImage = image

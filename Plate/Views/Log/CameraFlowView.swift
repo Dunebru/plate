@@ -21,6 +21,16 @@ struct CameraFlowView: View {
     @State private var error: String?
     @Environment(\.dismiss) private var dismiss
 
+    /// A simulator has no camera, so the framing overlay can never be seen there and was shipping
+    /// unlooked at. This draws it over the empty preview so it can be checked like any other screen.
+    static var previewingReticle: Bool {
+        #if DEBUG
+        return CommandLine.arguments.contains("--show-reticle")
+        #else
+        return false
+        #endif
+    }
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -34,7 +44,9 @@ struct CameraFlowView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbarColorScheme(.dark, for: .navigationBar)
         .toolbarBackground(.black, for: .navigationBar)
-        .onAppear { camera.start() }
+        // The preview flag draws the overlay without a camera, so it must not ask for one either:
+        // a permission sheet would sit on top of the thing being looked at.
+        .onAppear { if !Self.previewingReticle { camera.start() } }
         .onDisappear { camera.stop() }
         .onChange(of: pickerItem) { _, item in
             guard let item else { return }
@@ -54,7 +66,7 @@ struct CameraFlowView: View {
             ZStack {
                 CameraPreview(session: camera.session)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-                if camera.authorized { ReticleOverlay(mode: mode) }
+                if camera.authorized || Self.previewingReticle { ReticleOverlay(mode: mode) }
                 if !camera.authorized {
                     VStack(spacing: 8) {
                         Image(systemName: "camera.fill").font(.largeTitle)

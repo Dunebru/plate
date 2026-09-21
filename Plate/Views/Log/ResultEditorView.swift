@@ -184,7 +184,8 @@ struct ResultEditorView: View {
     /// saved foods, already carries the user's own numbers, so a change to it says nothing new about
     /// how the model reads a plate.
     private func learnFromCorrections() {
-        guard [.photo, .label, .describe].contains(meal.source), let original else { return }
+        guard meal.fromEstimate, [.photo, .label, .describe].contains(meal.source),
+              let original else { return }
         let before = Dictionary(original.items.map { (FoodCorrection.normalize($0.name), $0) },
                                 uniquingKeysWith: { first, _ in first })
 

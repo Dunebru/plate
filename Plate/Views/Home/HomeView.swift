@@ -87,7 +87,12 @@ struct HomeView: View {
             .sheet(item: $breakdown) { nutrient in
                 NutrientBreakdownView(nutrient: nutrient, profile: profile, meals: meals, day: day)
             }
-            .task { await health.refreshToday() }
+            .task {
+                // A route set before this view was listening would otherwise be missed, which is
+                // what happens when the app is launched cold straight into the camera.
+                if launchRoute.wrappedValue != nil { showAdd = true }
+                await health.refreshToday()
+            }
             .refreshable { await health.refreshToday() }
         }
     }

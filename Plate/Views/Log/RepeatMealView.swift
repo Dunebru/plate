@@ -88,7 +88,7 @@ struct RepeatMealView: View {
         }
         onResult(AnalyzedMeal(name: meal.name, items: items, notes: meal.notes,
                               healthScore: meal.healthScore, confidence: meal.confidence,
-                              source: meal.source))
+                              source: meal.source, fromEstimate: false))
         dismiss()
     }
 }

@@ -22,6 +22,13 @@ struct AnalyzedMeal: Equatable {
     var healthScore: Int?
     var confidence: Double?
     var source: MealSource
+    /// True only when a model produced these numbers just now.
+    ///
+    /// Correcting a fresh estimate teaches something: the model guessed and was wrong. Correcting a
+    /// meal repeated from the log, or taken from a barcode, teaches nothing, because those numbers
+    /// were already the user's own. Source alone cannot tell the difference, since a repeat keeps the
+    /// source of the meal it copied.
+    var fromEstimate: Bool = true
 
     var totals: Nutrients { items.reduce(Nutrients.zero) { $0 + $1.scaled } }
 }

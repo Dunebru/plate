@@ -1744,6 +1744,23 @@ final class FoodCorrectionTests: XCTestCase {
         XCTAssertTrue(context.learned.first?.contains("Food 29") == true, "most corrected first")
     }
 
+    /// A meal repeated from the log carries numbers the user already set, so editing it says
+    /// nothing about how the model reads a plate. Source alone cannot tell: a repeat keeps the
+    /// source of the meal it copied, so a repeated photo meal used to look like a fresh estimate.
+    func testARepeatedMealIsNotAFreshEstimate() {
+        let item = AnalyzedMeal.Item(name: "Rice", quantity: 1, unit: "cup", gramsPerUnit: 150,
+                                     base: Nutrients(calories: 200, protein: 4, carbs: 45, fat: 0,
+                                                     fiber: 1, sugar: 0, sodium: 2),
+                                     confidence: 0.8)
+        let fresh = AnalyzedMeal(name: "Rice", items: [item], notes: "", healthScore: 6,
+                                 confidence: 0.8, source: .photo)
+        XCTAssertTrue(fresh.fromEstimate, "a photo scan is an estimate and should teach")
+
+        let repeated = AnalyzedMeal(name: "Rice", items: [item], notes: "", healthScore: 6,
+                                    confidence: 0.8, source: .photo, fromEstimate: false)
+        XCTAssertFalse(repeated.fromEstimate, "a repeat keeps its source but must not teach")
+    }
+
     func testNoCorrectionsMeansNoExtraTokens() {
         let context = FoodAnalyzer.Context(profile: Profile(), corrections: [])
         XCTAssertFalse(context.promptLine.lowercased().contains("corrected portions"))
