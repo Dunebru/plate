@@ -9,6 +9,7 @@ struct AddSheet: View {
     /// so going back lands where it would have.
     var initialRoute: Route? = nil
     @Environment(\.dismiss) private var dismiss
+    @Query private var corrections: [FoodCorrection]
     @State private var path: [Route] = []
     @State private var opened = false
     @State private var result: AnalyzedMeal?
@@ -44,9 +45,9 @@ struct AddSheet: View {
             .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } } }
             .navigationDestination(for: Route.self) { route in
                 switch route {
-                case .camera(let mode): CameraFlowView(mode: mode, context: .init(profile: profile)) { meal, image in present(meal, image) }
+                case .camera(let mode): CameraFlowView(mode: mode, context: analyzerContext) { meal, image in present(meal, image) }
                 case .barcode: BarcodeFlowView { meal, image in present(meal, image) }
-                case .describe: DescribeView(context: .init(profile: profile)) { meal in present(meal, nil) }
+                case .describe: DescribeView(context: analyzerContext) { meal in present(meal, nil) }
                 case .saved: SavedFoodsView { meal in present(meal, nil) }
                 case .search: SearchFoodsView { meal in present(meal, nil) }
                 case .repeatMeal: RepeatMealView { meal in present(meal, nil) }
@@ -63,6 +64,12 @@ struct AddSheet: View {
             }
         }
         .presentationDetents([.large])
+    }
+
+    /// Carries what past corrections taught, so a scan starts from this person's portions rather
+    /// than from a reference serving.
+    private var analyzerContext: FoodAnalyzer.Context {
+        FoodAnalyzer.Context(profile: profile, corrections: corrections)
     }
 
     private func present(_ meal: AnalyzedMeal, _ image: UIImage?) {

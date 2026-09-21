@@ -7,6 +7,6 @@ struct PlateApp: App {
         WindowGroup {
             RootView()
         }
-        .modelContainer(for: [Profile.self, MealEntry.self, MealItem.self, SavedFood.self, WeightEntry.self, BodyMeasurement.self])
+        .modelContainer(for: [Profile.self, MealEntry.self, MealItem.self, SavedFood.self, WeightEntry.self, BodyMeasurement.self, FoodCorrection.self])
     }
 }

@@ -430,6 +430,7 @@ struct SettingsView: View {
             if provider == .gemini, let active = GeminiClient.rememberedModel {
                 LabeledContent("Model in use", value: active)
             }
+            NavigationLink("Learned portions") { LearnedPortionsView() }
             if provider == .anthropic {
                 Picker("Model", selection: $model) {
                     ForEach(ClaudeClient.models, id: \.id) { m in

@@ -36,19 +36,51 @@ struct FoodAnalyzer {
     struct Context: Equatable {
         var diet: DietStyle
         var avoids: [String]
+        /// Portions this person has corrected before, most corrected first.
+        var learned: [String] = []
 
         init(profile: Profile) {
             diet = profile.diet
             avoids = profile.avoids
         }
 
+        /// The few foods worth spending tokens on. Every phrase is paid for on every scan, so this is
+        /// the handful that have actually been corrected rather than everything ever eaten.
+        static let learnedLimit = 8
+
+        init(profile: Profile, corrections: [FoodCorrection]) {
+            self.init(profile: profile)
+            learned = corrections
+                .sorted { ($0.count, $0.updatedAt) > ($1.count, $1.updatedAt) }
+                .prefix(Self.learnedLimit)
+                .map(\.promptPhrase)
+        }
+
         /// Appended to the request. Kept short: it is a hint, not a rule, and the photo still wins.
         var promptLine: String {
+            var line = ""
             var parts: [String] = []
             if diet != .balanced { parts.append("They eat \(diet.label.lowercased()).") }
             if !avoids.isEmpty { parts.append("They do not eat: \(avoids.joined(separator: ", ")).") }
-            guard !parts.isEmpty else { return "" }
-            return " Context about this person, useful only for choosing between equally likely foods, never for overriding what is plainly in the photo: " + parts.joined(separator: " ")
+            if !parts.isEmpty {
+                line += " Context about this person, useful only for choosing between equally likely foods, never for overriding what is plainly in the photo: " + parts.joined(separator: " ")
+            }
+            if !learned.isEmpty {
+                // The wording here matters more than it looks. An earlier version said to use these
+                // sizes "when one of these appears", and the model read the list as things the person
+                // eats: a chicken salad came back with 300 g of rice in it, and a bowl of rice came
+                // back with a chicken breast. A list of foods next to a meal is a strong suggestion
+                // to include them, so the instruction has to refuse that explicitly before it says
+                // anything else.
+                line += " SIZE REFERENCE ONLY, NOT A LIST OF WHAT THEY ATE. The following notes say how"
+                    + " big this person's usual portions are. They are not ingredients and they are not"
+                    + " a meal. Never add a food to this meal because it is named here, and never"
+                    + " mention one that is not actually in the meal being described. Only if a food"
+                    + " below genuinely appears in this meal, and nothing in the photo or description"
+                    + " contradicts it, use their usual size instead of a reference serving: "
+                    + learned.joined(separator: "; ") + "."
+            }
+            return line
         }
     }
 

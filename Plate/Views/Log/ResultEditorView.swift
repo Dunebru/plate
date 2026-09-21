@@ -15,6 +15,9 @@ struct ResultEditorView: View {
     @State private var error: String?
     @State private var time = Date()
     @State private var saveFood = false
+    /// The estimate exactly as it arrived, kept so the difference the user made can be measured.
+    /// Without this there is nothing to compare against and nothing to learn from.
+    @State private var original: AnalyzedMeal?
 
     private var canFix: Bool { [.photo, .label, .describe].contains(meal.source) }
 
@@ -126,6 +129,12 @@ struct ResultEditorView: View {
                 let cal = Calendar.current
                 let now = Date()
                 time = cal.date(bySettingHour: cal.component(.hour, from: now), minute: cal.component(.minute, from: now), second: 0, of: day) ?? now
+                if original == nil { original = meal }
+            }
+            // Asking the model to fix something replaces the estimate, and the new one is what the
+            // user then edits, so that becomes the thing corrections are measured against.
+            .onChange(of: fixing) { was, now in
+                if was, !now { original = meal }
             }
         }
     }
@@ -135,7 +144,9 @@ struct ResultEditorView: View {
         error = nil
         Task {
             do {
-                meal = try await FoodAnalyzer(context: .init(profile: profile)).fix(meal, image: image, correction: correction)
+                let learned = (try? context.fetch(FetchDescriptor<FoodCorrection>())) ?? []
+                meal = try await FoodAnalyzer(context: .init(profile: profile, corrections: learned))
+                    .fix(meal, image: image, correction: correction)
                 correction = ""
             } catch {
                 self.error = error.localizedDescription
@@ -159,10 +170,42 @@ struct ResultEditorView: View {
         if saveFood {
             context.insert(SavedFood(name: entry.name, servingLabel: "meal", servingGrams: nil, perServing: entry.totals))
         }
+        learnFromCorrections()
         try? context.save()
         if profile.writeToHealth { Task { await HealthStore.shared.write(meal: entry) } }
         UINotificationFeedbackGenerator().notificationOccurred(.success)
         dismiss()
         onLogged()
+    }
+
+    /// Records the difference between what was estimated and what was saved.
+    ///
+    /// Only genuine model estimates teach anything. A meal repeated from the log, or picked from
+    /// saved foods, already carries the user's own numbers, so a change to it says nothing new about
+    /// how the model reads a plate.
+    private func learnFromCorrections() {
+        guard [.photo, .label, .describe].contains(meal.source), let original else { return }
+        let before = Dictionary(original.items.map { (FoodCorrection.normalize($0.name), $0) },
+                                uniquingKeysWith: { first, _ in first })
+
+        for item in meal.items {
+            let key = FoodCorrection.normalize(item.name)
+            guard !key.isEmpty, let was = before[key] else { continue }
+
+            let estimatedCalories = was.scaled.calories
+            let correctedCalories = item.scaled.calories
+            guard FoodCorrection.isWorthLearning(estimated: estimatedCalories, corrected: correctedCalories) else { continue }
+
+            let ratio = correctedCalories / estimatedCalories
+            let grams = item.grams
+            let existing = try? context.fetch(
+                FetchDescriptor<FoodCorrection>(predicate: #Predicate { $0.key == key })).first
+            if let existing {
+                existing.absorb(grams: grams, ratio: ratio, calories: correctedCalories)
+            } else {
+                context.insert(FoodCorrection(key: key, displayName: item.name,
+                                              grams: grams, ratio: ratio, calories: correctedCalories))
+            }
+        }
     }
 }

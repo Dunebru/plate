@@ -1645,3 +1645,107 @@ final class DayTargetTests: XCTestCase {
         XCTAssertTrue(text.contains("rolled over"), "and say why it differs from the baseline")
     }
 }
+
+/// Learning from corrections, and the lines it must not cross.
+final class FoodCorrectionTests: XCTestCase {
+    func testNormalizeCollapsesTheSameFood() {
+        XCTAssertEqual(FoodCorrection.normalize("Chicken Breast "), "chicken breast")
+        XCTAssertEqual(FoodCorrection.normalize("chicken  breast"), "chicken breast")
+        XCTAssertEqual(FoodCorrection.normalize("Chicken-breast!"), "chickenbreast")
+    }
+
+    func testSmallNudgesTeachNothing() {
+        // Someone rounding 200 to 210 is not telling the app anything about their plate.
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 200, corrected: 210))
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 200, corrected: 190))
+    }
+
+    func testARealCorrectionIsLearned() {
+        XCTAssertTrue(FoodCorrection.isWorthLearning(estimated: 200, corrected: 400))
+        XCTAssertTrue(FoodCorrection.isWorthLearning(estimated: 400, corrected: 200))
+    }
+
+    /// A typo or a mis-scaled entry must not become a permanent belief about someone's diet.
+    func testImplausibleCorrectionsAreIgnored() {
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 200, corrected: 20000))
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 200, corrected: 1))
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 0, corrected: 300))
+        XCTAssertFalse(FoodCorrection.isWorthLearning(estimated: 300, corrected: 0))
+    }
+
+    func testRepeatedCorrectionsConvergeOnTheUsualPortion() {
+        let c = FoodCorrection(key: "chicken breast", displayName: "Chicken breast",
+                               grams: 120, ratio: 1, calories: 200)
+        for _ in 0..<6 { c.absorb(grams: 220, ratio: 1.8, calories: 360) }
+        XCTAssertEqual(c.grams ?? 0, 220, accuracy: 2, "it should settle on the size actually eaten")
+        XCTAssertEqual(c.count, 7)
+    }
+
+    /// One unusual day should move it, but not erase the habit behind it.
+    func testOneOddDayDoesNotEraseTheHabit() {
+        let c = FoodCorrection(key: "rice", displayName: "Rice", grams: 300, ratio: 1.5, calories: 400)
+        for _ in 0..<5 { c.absorb(grams: 300, ratio: 1.5, calories: 400) }
+        c.absorb(grams: 60, ratio: 0.3, calories: 80)
+        XCTAssertGreaterThan(c.grams ?? 0, 100, "a single small day must not drag it all the way down")
+    }
+
+    func testPromptPrefersGramsOverAMultiplier() {
+        let withGrams = FoodCorrection(key: "steak", displayName: "Steak", grams: 250, ratio: 2, calories: 600)
+        XCTAssertTrue(withGrams.promptPhrase.contains("250 g"))
+        let without = FoodCorrection(key: "soup", displayName: "Soup", grams: nil, ratio: 1.6, calories: 300)
+        XCTAssertTrue(without.promptPhrase.contains("1.6"))
+    }
+
+    /// The prompt must tell the model that what it can see still wins. Learning someone's usual
+    /// portion should not make it ignore a small plate in front of it.
+    func testTheHintNeverOutranksThePhoto() {
+        let profile = Profile()
+        let c = FoodCorrection(key: "steak", displayName: "Steak", grams: 250, ratio: 2, calories: 600)
+        let context = FoodAnalyzer.Context(profile: profile, corrections: [c])
+        let line = context.promptLine
+        XCTAssertTrue(line.contains("Steak"))
+        XCTAssertTrue(line.lowercased().contains("contradicts it"),
+                      "the photo has to be allowed to overrule a learned portion\n\(line)")
+    }
+
+    /// The bug this guards against, found against the live model before it shipped: an earlier
+    /// wording made the list read as things the person eats, so a chicken salad came back with 300 g
+    /// of rice in it and a bowl of rice came back with a chicken breast. A list of foods beside a
+    /// meal is a strong suggestion to include them, so the refusal has to be explicit and has to come
+    /// before anything else in the sentence.
+    func testTheHintRefusesToBeReadAsIngredients() {
+        let corrections = [
+            FoodCorrection(key: "chicken breast", displayName: "Chicken breast", grams: 250, ratio: 2, calories: 400),
+            FoodCorrection(key: "white rice", displayName: "White rice", grams: 300, ratio: 1.5, calories: 390),
+        ]
+        let line = FoodAnalyzer.Context(profile: Profile(), corrections: corrections).promptLine
+        let lower = line.lowercased()
+        XCTAssertTrue(lower.contains("not a list of what they ate"))
+        XCTAssertTrue(lower.contains("never add a food"))
+        XCTAssertTrue(lower.contains("they are not ingredients"))
+        // The refusal has to land before the foods are named, or it is read as an afterthought.
+        let refusal = try? XCTUnwrap(lower.range(of: "never add a food"))
+        let firstFood = try? XCTUnwrap(lower.range(of: "chicken breast is usually"))
+        if let refusal, let firstFood {
+            XCTAssertLessThan(refusal.lowerBound, firstFood.lowerBound)
+        }
+    }
+
+    /// Every phrase is billed on every scan, so the list has to stay short.
+    func testOnlyTheMostCorrectedFoodsAreSent() {
+        let many = (0..<30).map { i -> FoodCorrection in
+            let c = FoodCorrection(key: "food\(i)", displayName: "Food \(i)",
+                                   grams: 100, ratio: 1.5, calories: 200)
+            c.count = i
+            return c
+        }
+        let context = FoodAnalyzer.Context(profile: Profile(), corrections: many)
+        XCTAssertEqual(context.learned.count, FoodAnalyzer.Context.learnedLimit)
+        XCTAssertTrue(context.learned.first?.contains("Food 29") == true, "most corrected first")
+    }
+
+    func testNoCorrectionsMeansNoExtraTokens() {
+        let context = FoodAnalyzer.Context(profile: Profile(), corrections: [])
+        XCTAssertFalse(context.promptLine.lowercased().contains("corrected portions"))
+    }
+}
