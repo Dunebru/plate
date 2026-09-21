@@ -11,6 +11,9 @@ struct SettingsView: View {
     @State private var provider: AIProvider = .current
     @State private var apiKey = Keychain.get(AIProvider.current.keyAccount) ?? ""
     @AppStorage(ClaudeClient.modelDefaultsKey) private var model = ClaudeClient.defaultModel
+    /// Off until someone asks for it, so an app with no wearable behaves exactly as it always has.
+    @AppStorage(HealthSignals.defaultsKey) private var readWearable = false
+    @StateObject private var health = HealthStore.shared
     @State private var keyStatus: APIKeyStatus = .idle
     @State private var exportURL: URL?
     @State private var confirmReset = false
@@ -337,11 +340,55 @@ struct SettingsView: View {
                 }
             }
             .disabled(!profile.writeToHealth)
+
+            // Asked for here and nowhere else, so nobody meets a permission sheet at launch for a
+            // feature they have not turned on.
+            Toggle("Read my wearable", isOn: $readWearable)
+                .onChange(of: readWearable) { _, on in
+                    if on {
+                        Task {
+                            await HealthStore.shared.requestSignalAuthorization()
+                            await refreshSignals()
+                        }
+                    } else {
+                        HealthStore.shared.signals = HealthSignals.Snapshot()
+                    }
+                }
+            if readWearable {
+                NavigationLink {
+                    HealthSignalsView(profile: profile)
+                } label: {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("What Health knows")
+                        Text(wearableSummary).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }
         } header: {
             Text("Apple Health")
         } footer: {
-            Text("Meals are written as dietary energy, protein, carbs, fat, fiber, sugar, and sodium. Editing or deleting a meal updates Health.")
+            Text("Meals are written as dietary energy, protein, carbs, fat, fiber, sugar, and sodium. Editing or deleting a meal updates Health. A Whoop, an Apple Watch or anything else that writes into Health can fill in your burn, your workouts, and your sleep and heart rate as context. Whole days only, and one source at a time so two devices are never counted twice.")
         }
+    }
+
+    /// What was last read, so the switch is visibly doing something. Silence when a wearable is
+    /// absent is the correct answer and this says so plainly rather than leaving a blank row.
+    private var wearableSummary: String {
+        let signals = health.signals
+        if let burn = signals.burn {
+            return "\(burn.tdee) kcal a day from \(burn.source.label), over \(burn.days) days"
+        }
+        if let sleep = signals.recovery.sleepSource ?? signals.recovery.restingHeartRateSource {
+            return "Sleep and heart rate from \(sleep.label)"
+        }
+        if let workout = signals.workouts.first {
+            return "Workouts from \(workout.source.label)"
+        }
+        return signals.readAt == nil ? "Checking" : "Nothing written by a wearable yet"
+    }
+
+    private func refreshSignals() async {
+        await HealthStore.shared.refreshSignals(prediction: HealthSignals.Prediction(profile.inputs))
     }
 
     @ViewBuilder private var analysisSection: some View {

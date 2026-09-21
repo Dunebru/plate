@@ -1127,3 +1127,401 @@ final class PortionScalingTests: XCTestCase {
         XCTAssertEqual(factors, factors.sorted(), "smallest first so the row reads left to right")
     }
 }
+
+final class SugarAndSodiumLimitTests: XCTestCase {
+
+    /// 10 percent of energy at 4 calories a gram is calories divided by 40, so the two rules meet
+    /// at 1,440 calories for men and 1,000 for women. Either side of that the stricter one has to
+    /// be the one showing.
+    func testTheTwoSugarRulesCrossOverWhereTheArithmeticSaysTheyDo() {
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 1440, sex: .male), 36)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 1200, sex: .male), 30, "under the crossover the energy rule binds")
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 1600, sex: .male), 36, "over it the flat figure binds")
+
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 1000, sex: .female), 25)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 800, sex: .female), 20)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 1200, sex: .female), 25,
+                       "10 percent of 1,200 is 30 g, and the flat figure has to win or a small eater gets more than a moderate one")
+    }
+
+    func testAppetiteNeverBuysMoreSugar() {
+        for calories in stride(from: 1500.0, through: 5000.0, by: 250) {
+            XCTAssertEqual(NutritionMath.addedSugarLimit(calories: calories, sex: .male), 36)
+            XCTAssertEqual(NutritionMath.addedSugarLimit(calories: calories, sex: .female), 25)
+        }
+    }
+
+    func testTheSugarLimitOnlyEverFallsAsCaloriesFall() {
+        for sex in Sex.allCases {
+            var previous = 0
+            for calories in stride(from: 400.0, through: 5000.0, by: 50) {
+                let limit = NutritionMath.addedSugarLimit(calories: calories, sex: sex)
+                XCTAssertGreaterThanOrEqual(limit, previous, "\(sex.rawValue) dipped at \(calories) calories")
+                previous = limit
+            }
+        }
+    }
+
+    func testAMissingOrNonsenseCalorieFigureFallsBackToTheFlatLimit() {
+        // A hand edited target can be anything. None of these may produce a limit of zero, which
+        // the Today screen would read as already over.
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: 0, sex: .female), 25)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: -500, sex: .male), 36)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: .nan, sex: .male), 36)
+        XCTAssertEqual(NutritionMath.addedSugarLimit(calories: .infinity, sex: .female), 25)
+    }
+
+    func testSodiumIsOneFigureForEveryone() {
+        XCTAssertEqual(NutritionMath.sodiumLimit(), 2300)
+    }
+
+    func testBothLimitsSurviveRecalculating() {
+        let p = Profile()
+        p.sex = .female
+        p.goal = .lose
+        p.dailyActivity = .desk
+        p.recalculateTargets()
+        XCTAssertEqual(p.sugarLimit, p.plan.sugarLimit, "the stored limit has to be the one the math just worked out")
+        XCTAssertEqual(p.sugarLimit, 25, "a woman on any target the app will set sits on the flat figure")
+        XCTAssertEqual(p.sodiumLimit, 2300)
+
+        p.sex = .male
+        p.goal = .gain
+        p.recalculateTargets()
+        XCTAssertEqual(p.sugarLimit, 36, "a man in a surplus is well over the crossover")
+        XCTAssertEqual(p.sodiumLimit, 2300)
+    }
+
+    func testAProfileFromBeforeTheLimitsExistedReadsBackTheDefaults() {
+        // SwiftData fills a column added later from the property default, so an untouched profile
+        // has to carry real numbers rather than zero.
+        let old = Profile()
+        XCTAssertEqual(old.sugarLimit, 36)
+        XCTAssertEqual(old.sodiumLimit, 2300)
+    }
+
+    func testThePlanCarriesTheLimitsSoEveryScreenAgrees() {
+        let i = NutritionMath.Inputs(sex: .female, age: 30, heightCm: 165, weightKg: 60,
+                                     activity: .light, goal: .maintain, paceKgPerWeek: 0)
+        let plan = NutritionMath.plan(for: i)
+        XCTAssertEqual(plan.sugarLimit, 25)
+        XCTAssertEqual(plan.sodiumLimit, 2300)
+    }
+
+    func testTheSugarRowSaysWhatItIsActuallyMeasuring() {
+        let note = NutritionMath.totalVersusAddedSugarNote
+        XCTAssertTrue(note.contains("added sugar"))
+        XCTAssertTrue(note.contains("total sugar"))
+        XCTAssertFalse(note.contains("\u{2014}"), "house style, no em dashes")
+    }
+}
+
+final class NutrientBreakdownTests: XCTestCase {
+    private func meal(_ name: String, at hour: Int, on day: Date,
+                      items: [(String, Nutrients)]) -> MealEntry {
+        let date = Calendar.current.date(bySettingHour: hour, minute: 0, second: 0, of: day)!
+        let entry = MealEntry(name: name, date: date, source: .manual)
+        entry.items = items.enumerated().map { index, item in
+            MealItem(name: item.0, quantity: 1, unit: "serving", gramsPerUnit: nil, base: item.1, order: index)
+        }
+        entry.recalculate()
+        return entry
+    }
+
+    private var today: Date { Calendar.current.startOfDay(for: Date()) }
+
+    private func lunchAndDinner() -> [MealEntry] {
+        [meal("Lunch", at: 12, on: today, items: [
+            ("Chicken breast", Nutrients(calories: 260, protein: 52, carbs: 0, fat: 6, fiber: 0, sugar: 0, sodium: 130)),
+            ("Rice", Nutrients(calories: 205, protein: 4, carbs: 45, fat: 1, fiber: 1, sugar: 0, sodium: 2)),
+         ]),
+         meal("Dinner", at: 19, on: today, items: [
+            ("Salmon", Nutrients(calories: 350, protein: 34, carbs: 0, fat: 22, fiber: 0, sugar: 0, sodium: 300)),
+         ])]
+    }
+
+    /// The whole point of the screen: the chicken, not the lunch it was part of.
+    func testRankingIsByItemAndBiggestFirst() {
+        let rows = NutrientContribution.ranked(.protein, meals: lunchAndDinner(), day: today)
+        XCTAssertEqual(rows.map(\.name), ["Chicken breast", "Salmon", "Rice"])
+        XCTAssertEqual(rows[0].amount, 52, accuracy: 0.001)
+        XCTAssertEqual(rows[0].mealName, "Lunch", "the sitting is still worth naming under the item")
+    }
+
+    /// Rice has no fat worth showing and salmon has no fiber, so neither should pad the list.
+    func testItemsWithNoneOfTheNutrientAreLeftOut() {
+        let rows = NutrientContribution.ranked(.fiber, meals: lunchAndDinner(), day: today)
+        XCTAssertEqual(rows.map(\.name), ["Rice"])
+    }
+
+    /// The ranked amounts have to add up to the number on Today, or the sheet contradicts the tile.
+    func testTheRowsAddUpToTheDayTotal() {
+        let meals = lunchAndDinner()
+        for nutrient in [BreakdownNutrient.protein, .carbs, .fat, .sodium] {
+            let summed = NutrientContribution.ranked(nutrient, meals: meals, day: today).reduce(0) { $0 + $1.amount }
+            let total = nutrient.amount(in: DayStats.totals(on: today, meals: meals))
+            XCTAssertEqual(summed, total, accuracy: 0.001, "\(nutrient.title) disagrees with the day")
+        }
+    }
+
+    func testOtherDaysAreNotCounted() {
+        let yesterday = Calendar.current.date(byAdding: .day, value: -1, to: today)!
+        var meals = lunchAndDinner()
+        meals.append(meal("Yesterday's lunch", at: 13, on: yesterday, items: [
+            ("Steak", Nutrients(calories: 500, protein: 60, carbs: 0, fat: 28, fiber: 0, sugar: 0, sodium: 200)),
+        ]))
+        let rows = NutrientContribution.ranked(.protein, meals: meals, day: today)
+        XCTAssertFalse(rows.contains { $0.name == "Steak" })
+        XCTAssertEqual(rows.count, 3)
+    }
+
+    /// An entry saved before items existed still has totals, and dropping it would quietly lose
+    /// protein the day was actually credited with.
+    func testAMealWithNoItemsStandsInForItself() {
+        let bare = MealEntry(name: "Old entry", date: today, source: .manual)
+        bare.totals = Nutrients(calories: 300, protein: 25, carbs: 10, fat: 12, fiber: 2, sugar: 3, sodium: 400)
+        let rows = NutrientContribution.ranked(.protein, meals: [bare], day: today)
+        XCTAssertEqual(rows.map(\.name), ["Old entry"])
+        XCTAssertEqual(rows[0].amount, 25, accuracy: 0.001)
+    }
+
+    /// Equal contributions have to land in a fixed order or the list reshuffles on every redraw.
+    func testTiesFallBackToTheEarlierMeal() {
+        let meals = [meal("Dinner", at: 19, on: today, items: [("Tofu", Nutrients(protein: 20))]),
+                     meal("Breakfast", at: 8, on: today, items: [("Eggs", Nutrients(protein: 20))])]
+        XCTAssertEqual(NutrientContribution.ranked(.protein, meals: meals, day: today).map(\.name), ["Eggs", "Tofu"])
+    }
+
+    /// Going over on sugar or sodium is the bad outcome, and going over on the other four is not,
+    /// so the sheet must not read them the same way.
+    func testOnlySugarAndSodiumAreLimits() {
+        XCTAssertEqual(BreakdownNutrient.allCases.filter(\.isLimit), [.sugar, .sodium])
+        XCTAssertEqual(BreakdownNutrient.sodium.unit, "mg")
+        XCTAssertTrue(BreakdownNutrient.allCases.filter { $0 != .sodium }.allSatisfy { $0.unit == "g" })
+    }
+
+    func testEachNutrientReadsItsOwnTarget() {
+        let profile = Profile()
+        profile.proteinTarget = 180
+        profile.carbTarget = 200
+        profile.fatTarget = 60
+        profile.fiberTarget = 30
+        profile.sugarLimit = 25
+        profile.sodiumLimit = 2300
+        XCTAssertEqual(BreakdownNutrient.allCases.map { $0.goal(for: profile) },
+                       [180, 200, 60, 30, 25, 2300])
+    }
+
+    /// Sugar is the one row that would mislead without a sentence beside it.
+    func testOnlySugarCarriesACaveat() {
+        XCTAssertEqual(BreakdownNutrient.sugar.caveat, NutritionMath.totalVersusAddedSugarNote)
+        XCTAssertTrue(BreakdownNutrient.allCases.filter { $0 != .sugar }.allSatisfy { $0.caveat == nil })
+    }
+}
+
+// MARK: - Reading a wearable
+
+/// The arithmetic behind the Apple Health feature, which is the half that can be checked without a
+/// band on a wrist. Every test here is about not counting the same calories twice.
+final class WearableSignalsTests: XCTestCase {
+
+    /// A middling adult: 1,700 resting, 2,500 all in, 300 of that predicted from the MET table.
+    private let prediction = HealthSignals.Prediction(bmr: 1700, tdee: 2500, trainingKcalPerDay: 300)
+
+    private func days(_ count: Int, active: Double, basal: Double?) -> [HealthSignals.DayEnergy] {
+        let cal = Calendar.current
+        let start = cal.startOfDay(for: Date())
+        return (1...count).map { offset in
+            HealthSignals.DayEnergy(date: cal.date(byAdding: .day, value: -offset, to: start) ?? start,
+                                    activeKcal: active, basalKcal: basal)
+        }
+    }
+
+    private func sessions(_ count: Int, kcal: Int?, minutes: Int = 45,
+                          source: HealthSignals.Source = .whoop) -> [HealthSignals.Workout] {
+        let cal = Calendar.current
+        return (1...count).map { offset in
+            let start = cal.date(byAdding: .day, value: -offset, to: Date()) ?? Date()
+            return HealthSignals.Workout(id: UUID(), date: start,
+                                         end: start.addingTimeInterval(Double(minutes) * 60),
+                                         kind: "Running", minutes: minutes, kcal: kcal, source: source)
+        }
+    }
+
+    // MARK: Who wrote it
+
+    func testWhoopIsRecognisedByBundleAndByName() {
+        XCTAssertEqual(HealthSignals.classify(bundleIdentifier: "com.whoop.iphone",
+                                              productType: "iPhone14,2", name: "WHOOP"), .whoop)
+        XCTAssertEqual(HealthSignals.classify(bundleIdentifier: "com.example.bridge",
+                                              productType: nil, name: "Whoop Sync"), .whoop)
+    }
+
+    /// Apple writes its own samples under a per device bundle identifier, so only the hardware
+    /// model separates a watch from the phone it syncs to.
+    func testOnlyTheProductTypeTellsAWatchFromAPhone() {
+        let bundle = "com.apple.health.A1B2C3D4"
+        XCTAssertEqual(HealthSignals.classify(bundleIdentifier: bundle, productType: "Watch6,2",
+                                              name: "Sam's Apple Watch"), .appleWatch)
+        XCTAssertEqual(HealthSignals.classify(bundleIdentifier: bundle, productType: "iPhone16,1",
+                                              name: "Sam's iPhone"), .iPhone)
+        XCTAssertEqual(HealthSignals.classify(bundleIdentifier: bundle, productType: nil,
+                                              name: "Sam's iPhone"), .other("Sam's iPhone"))
+    }
+
+    func testTheBandOutranksTheWatchAndBothOutrankThePhone() {
+        let order = [HealthSignals.Source.whoop, .appleWatch, .other("Strava"), .iPhone]
+        XCTAssertEqual(order.map(\.rank), order.map(\.rank).sorted(), "worn sources first, phone last")
+        XCTAssertEqual(order.map(\.rank).count, Set(order.map(\.rank)).count, "no ties to break")
+    }
+
+    // MARK: A whole day off the device
+
+    func testAMeasuredDayIsMovementPlusRestingAndNothingElse() {
+        let burn = HealthSignals.measuredBurn(days: days(28, active: 700, basal: 1700),
+                                              workouts: [], source: .appleWatch,
+                                              prediction: prediction)
+        XCTAssertEqual(burn?.basis, .wholeDay)
+        XCTAssertEqual(burn?.tdee, 2400, "700 moving and 1,700 resting")
+        XCTAssertNotEqual(burn?.tdee, 4100, "the resting burn must not be added a second time")
+    }
+
+    /// The one that would inflate a target every day if it were wrong.
+    func testAPredictedRestingBurnIsNeverAddedToAMeasuredOne() {
+        let burn = HealthSignals.measuredBurn(days: days(28, active: 700, basal: 1700),
+                                              workouts: [], source: .appleWatch,
+                                              prediction: prediction)
+        XCTAssertEqual(burn?.restingKcal, 1700, "the measured figure, not the measured plus the equation")
+        XCTAssertEqual((burn?.activeKcal ?? 0) + (burn?.restingKcal ?? 0), burn?.tdee)
+    }
+
+    /// A source that puts the whole day into the field meant for movement alone.
+    func testAWholeDayTotalWrittenAsActiveEnergyIsRefused() {
+        let burn = HealthSignals.measuredBurn(days: days(28, active: 2400, basal: 1700),
+                                              workouts: [], source: .whoop,
+                                              prediction: prediction)
+        XCTAssertNil(burn, "movement beating the entire resting burn every day is a mislabelled total")
+    }
+
+    func testDaysTheDeviceWasNotWornDoNotCount() {
+        // A fortnight of real wear and a fortnight of resting burn far below what a body needs.
+        let worn = days(14, active: 700, basal: 1700)
+        let off = days(14, active: 20, basal: 300)
+        let burn = HealthSignals.measuredBurn(days: worn + off, workouts: [], source: .appleWatch,
+                                              prediction: prediction)
+        XCTAssertEqual(burn?.days, 14)
+        XCTAssertEqual(burn?.tdee, 2400)
+    }
+
+    func testTooFewDaysIsNoAnswerAtAll() {
+        XCTAssertNil(HealthSignals.measuredBurn(days: days(5, active: 700, basal: 1700),
+                                                workouts: [], source: .appleWatch, prediction: prediction))
+    }
+
+    /// The simulator, and every phone without a wearable beside it.
+    func testNothingInHealthProducesNothing() {
+        XCTAssertNil(HealthSignals.measuredBurn(days: [], workouts: [], source: .iPhone,
+                                                prediction: prediction))
+        XCTAssertEqual(HealthSignals.prior(measured: nil, predictedTDEE: 2500), 2500,
+                       "no reading leaves the prediction exactly where it was")
+    }
+
+    // MARK: Sessions only, which is what a Whoop writes
+
+    /// Without a resting burn in Health, an active energy figure could cover the whole day or only
+    /// the sessions in it, and those differ by every calorie of everyday movement. The sessions are
+    /// unambiguous, so they are what gets used.
+    func testActiveEnergyWithNoRestingBurnFallsBackToTheSessions() {
+        let burn = HealthSignals.measuredBurn(days: days(28, active: 700, basal: nil),
+                                              workouts: sessions(8, kcal: 600),
+                                              source: .whoop, prediction: prediction)
+        XCTAssertEqual(burn?.basis, .workoutsOnly)
+        XCTAssertEqual(burn?.activeKcal, 171, "4,800 kcal of sessions spread over 28 days")
+        XCTAssertNotEqual(burn?.activeKcal, 700, "an ambiguous daily figure is not used")
+    }
+
+    /// Measured training replaces the MET table estimate. Adding it would count training twice.
+    func testMeasuredTrainingReplacesThePredictedTrainingRatherThanAddingToIt() {
+        let burn = HealthSignals.measuredBurn(days: [], workouts: sessions(12, kcal: 500),
+                                              source: .whoop, prediction: prediction)
+        XCTAssertEqual(burn?.restingKcal, 2200, "the 2,500 day with its predicted 300 of training taken out")
+        XCTAssertEqual(burn?.tdee, 2414)
+        XCTAssertNotEqual(burn?.tdee, 2714, "2,500 plus the sessions would count training twice")
+    }
+
+    func testSessionsWithNoEnergyFigureAreNotPricedAtZero() {
+        XCTAssertNil(HealthSignals.measuredBurn(days: [], workouts: sessions(12, kcal: nil),
+                                                source: .whoop, prediction: prediction),
+                     "sessions Plate cannot price would drag the average down and cut the target")
+    }
+
+    func testOneOrTwoSessionsIsNotAPicture() {
+        XCTAssertNil(HealthSignals.measuredBurn(days: [], workouts: sessions(2, kcal: 500),
+                                                source: .whoop, prediction: prediction))
+    }
+
+    func testTheMeasuredFigureIsHeldNearTheEquation() {
+        // Sessions large enough that believing them whole would move the target a long way.
+        let burn = HealthSignals.measuredBurn(days: [], workouts: sessions(20, kcal: 2500, minutes: 120),
+                                              source: .whoop, prediction: prediction)
+        XCTAssertNotNil(burn)
+        XCTAssertLessThanOrEqual(Double(burn?.blended ?? 0), 2500 * 1.5)
+        XCTAssertLessThan(burn?.blended ?? 0, burn?.tdee ?? 0, "confidence pulls it back toward the equation")
+    }
+
+    // MARK: Two devices, one day
+
+    func testARunLoggedTwiceCountsOnce() {
+        let start = Date()
+        let watch = HealthSignals.Workout(id: UUID(), date: start, end: start.addingTimeInterval(3600),
+                                          kind: "Running", minutes: 60, kcal: 600, source: .appleWatch)
+        let band = HealthSignals.Workout(id: UUID(), date: start.addingTimeInterval(120),
+                                         end: start.addingTimeInterval(3500),
+                                         kind: "Running", minutes: 56, kcal: 640, source: .whoop)
+        let kept = HealthSignals.deduplicate([watch, band])
+        XCTAssertEqual(kept.count, 1)
+        XCTAssertEqual(kept.first?.source, .whoop, "the source Plate trusts most survives")
+    }
+
+    func testSessionsThatDoNotOverlapAreBothKept() {
+        let start = Date()
+        let morning = HealthSignals.Workout(id: UUID(), date: start, end: start.addingTimeInterval(3600),
+                                            kind: "Running", minutes: 60, kcal: 600, source: .whoop)
+        let evening = HealthSignals.Workout(id: UUID(), date: start.addingTimeInterval(36000),
+                                            end: start.addingTimeInterval(39600),
+                                            kind: "Cycling", minutes: 60, kcal: 500, source: .whoop)
+        XCTAssertEqual(HealthSignals.deduplicate([morning, evening]).count, 2)
+    }
+
+    /// Whoop writes a sample per sleep stage and a watch writes its own beside it.
+    func testOverlappingSleepIsCountedOnce() {
+        let start = Date()
+        let first = (start: start, end: start.addingTimeInterval(3600))
+        let overlapping = (start: start.addingTimeInterval(1800), end: start.addingTimeInterval(5400))
+        XCTAssertEqual(HealthSignals.unionMinutes([first, overlapping]), 90, accuracy: 0.01)
+        XCTAssertEqual(HealthSignals.unionMinutes([first, first]), 60, accuracy: 0.01)
+    }
+
+    func testAGapBetweenSleepSamplesIsNotCounted() {
+        let start = Date()
+        let first = (start: start, end: start.addingTimeInterval(3600))
+        let later = (start: start.addingTimeInterval(7200), end: start.addingTimeInterval(10800))
+        XCTAssertEqual(HealthSignals.unionMinutes([first, later]), 120, accuracy: 0.01)
+        XCTAssertEqual(HealthSignals.unionMinutes([]), 0)
+    }
+
+    // MARK: The weekly picture
+
+    func testAStrayAutoDetectedWalkIsNotASession() {
+        let real = sessions(4, kcal: 500, minutes: 45)
+        let strays = sessions(10, kcal: 20, minutes: 6)
+        let week = HealthSignals.trainingWeek(real + strays, overDays: 28)
+        XCTAssertEqual(week?.sessions, 1, "four sessions across four weeks")
+        XCTAssertEqual(week?.averageMinutes, 45)
+    }
+
+    func testNoWorkoutsMeansNoWeeklyPicture() {
+        XCTAssertNil(HealthSignals.trainingWeek([], overDays: 28))
+        XCTAssertNil(HealthSignals.trainingWeek(sessions(3, kcal: 100, minutes: 5), overDays: 28))
+    }
+}

@@ -9,6 +9,7 @@ struct HomeView: View {
     @State private var day = Date()
     @State private var showAdd = false
     @State private var editing: MealEntry?
+    @State private var breakdown: BreakdownNutrient?
 
     private var dayMeals: [MealEntry] { meals.filter { DayStats.sameDay($0.date, day) } }
     private var totals: Nutrients { dayMeals.reduce(Nutrients.zero) { $0 + $1.totals } }
@@ -62,6 +63,9 @@ struct HomeView: View {
             }
             .sheet(isPresented: $showAdd) { AddSheet(profile: profile, day: day) }
             .sheet(item: $editing) { meal in MealDetailView(meal: meal, profile: profile) }
+            .sheet(item: $breakdown) { nutrient in
+                NutrientBreakdownView(nutrient: nutrient, profile: profile, meals: meals, day: day)
+            }
             .task { await health.refreshToday() }
             .refreshable { await health.refreshToday() }
         }
@@ -116,35 +120,65 @@ struct HomeView: View {
 
     private var macroRow: some View {
         HStack(spacing: 10) {
-            MacroDial(title: "Protein", eaten: totals.protein, target: Double(profile.proteinTarget), color: .protein)
-            MacroDial(title: "Carbs", eaten: totals.carbs, target: Double(profile.carbTarget), color: .carbs)
-            MacroDial(title: "Fat", eaten: totals.fat, target: Double(profile.fatTarget), color: .fat)
+            dial(.protein, eaten: totals.protein, target: profile.proteinTarget)
+            dial(.carbs, eaten: totals.carbs, target: profile.carbTarget)
+            dial(.fat, eaten: totals.fat, target: profile.fatTarget)
         }
+    }
+
+    private func dial(_ nutrient: BreakdownNutrient, eaten: Double, target: Int) -> some View {
+        Button { breakdown = nutrient } label: {
+            MacroDial(title: nutrient.title, eaten: eaten, target: Double(target), color: nutrient.color)
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityHint("Shows what gave you the most \(nutrient.title.lowercased()) today")
     }
 
     private var microRow: some View {
         HStack(spacing: 10) {
-            micro("Fiber", "\(Int(totals.fiber.rounded()))/\(profile.fiberTarget) g",
-                  done: totals.fiber >= Double(profile.fiberTarget))
-            micro("Sugar", "\(Int(totals.sugar.rounded())) g", done: false)
-            micro("Sodium", "\(Int(totals.sodium.rounded())) mg", done: false)
+            microTile(.fiber, eaten: totals.fiber, goal: profile.fiberTarget)
+            microTile(.sugar, eaten: totals.sugar, goal: profile.sugarLimit)
+            microTile(.sodium, eaten: totals.sodium, goal: profile.sodiumLimit)
             if health.stepsToday > 0, isToday {
-                micro("Steps", health.stepsToday.formatted(), done: false)
+                micro("Steps", value: health.stepsToday.formatted(), goal: nil, tint: .primary,
+                      spoken: "\(health.stepsToday.formatted()) steps")
             }
         }
     }
 
-    private func micro(_ label: String, _ value: String, done: Bool) -> some View {
+    /// Fiber is a target, so reaching it is green. Sugar and sodium are limits, so being under one
+    /// is simply normal and only going over is worth a color.
+    private func microTile(_ nutrient: BreakdownNutrient, eaten: Double, goal: Int) -> some View {
+        let amount = Int(eaten.rounded())
+        let tint: Color = nutrient.isLimit
+            ? (amount > goal ? .orange : .primary)
+            : (amount >= goal ? .green : .primary)
+        let unit = nutrient.unit
+        return Button { breakdown = nutrient } label: {
+            micro(nutrient.title, value: amount.formatted(), goal: "/ \(goal.formatted()) \(unit)", tint: tint,
+                  spoken: "\(amount.formatted()) of \(goal.formatted()) \(unit == "mg" ? "milligrams" : "grams")")
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityHint("Shows what gave you the most \(nutrient.title.lowercased()) today")
+    }
+
+    private func micro(_ label: String, value: String, goal: String?, tint: Color, spoken: String) -> some View {
         VStack(spacing: 2) {
-            Text(value).font(.subheadline.weight(.semibold)).monospacedDigit()
-                .foregroundStyle(done ? Color.green : Color.primary)
+            HStack(alignment: .firstTextBaseline, spacing: 3) {
+                Text(value).font(.subheadline.weight(.semibold)).monospacedDigit().foregroundStyle(tint)
+                if let goal {
+                    Text(goal).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
+                }
+            }
+            .lineLimit(1)
+            .minimumScaleFactor(0.6)
             Text(label).font(.caption2).foregroundStyle(.secondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 10)
         .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("\(label) \(value)")
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("\(label), \(spoken)")
     }
 
     // MARK: Meals

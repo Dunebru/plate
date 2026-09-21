@@ -42,7 +42,23 @@ struct RootView: View {
                 context.insert(Profile())
                 try? context.save()
             }
+            repairLimits()
         }
+    }
+
+    /// Sugar and sodium limits arrived after people were already using the app. SwiftData fills a new
+    /// column from its property default, and the sugar default is the figure for men, so a woman
+    /// upgrading would read 36 g until something happened to rebuild her targets. Only these two
+    /// fields are corrected here: a full rebuild would also overwrite calorie and macro targets that
+    /// someone may have set by hand.
+    private func repairLimits() {
+        guard let profile = profiles.first, profile.onboarded else { return }
+        let sugar = NutritionMath.addedSugarLimit(calories: Double(profile.calorieTarget), sex: profile.sex)
+        let sodium = NutritionMath.sodiumLimit()
+        guard profile.sugarLimit != sugar || profile.sodiumLimit != sodium else { return }
+        profile.sugarLimit = sugar
+        profile.sodiumLimit = sodium
+        try? context.save()
     }
 }
 
@@ -50,7 +66,7 @@ struct MainTabView: View {
     @Bindable var profile: Profile
     @State private var tab: TabChoice = .today
 
-    enum TabChoice: String, Hashable { case today, progress, body, settings }
+    enum TabChoice: String, Hashable { case today, progress, ask, body, settings }
 
     var body: some View {
         TabView(selection: $tab) {
@@ -59,6 +75,9 @@ struct MainTabView: View {
             }
             Tab("Progress", systemImage: "chart.line.uptrend.xyaxis", value: TabChoice.progress) {
                 ProgressView_(profile: profile)
+            }
+            Tab("Ask", systemImage: "bubble.left.and.text.bubble.right", value: TabChoice.ask) {
+                CoachView(profile: profile)
             }
             if profile.showBodyTab {
                 Tab("Body", systemImage: "figure.stand", value: TabChoice.body) {

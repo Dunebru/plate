@@ -500,6 +500,12 @@ final class Profile {
     var carbTarget: Int = 200
     var fatTarget: Int = 65
     var fiberTarget: Int = 28
+    /// Grams of added sugar. Defaulted to the adult figure so a profile written before limits
+    /// existed reads back a real number rather than zero, which the Today screen would show as
+    /// an instant failure.
+    var sugarLimit: Int = 36
+    /// Milligrams, and defaulted for the same reason.
+    var sodiumLimit: Int = 2300
     var waterMl: Int = 2500
     /// Set when the user edits a target by hand, so recalculating does not quietly undo their choice.
     var targetsEditedByUser: Bool = false
@@ -637,6 +643,8 @@ final class Profile {
         carbTarget = plan.carbs
         fatTarget = plan.fat
         fiberTarget = plan.fiber
+        sugarLimit = plan.sugarLimit
+        sodiumLimit = plan.sodiumLimit
         waterMl = plan.waterMl
         targetsEditedByUser = false
     }

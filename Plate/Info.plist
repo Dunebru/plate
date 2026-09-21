@@ -30,7 +30,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>Plate uses the camera to photograph meals and scan barcodes and nutrition labels.</string>
 	<key>NSHealthShareUsageDescription</key>
-	<string>Plate reads your weight, steps, and active energy from Apple Health to keep your targets accurate.</string>
+	<string>Plate reads your weight, steps, and energy burned from Apple Health to keep your targets accurate. If you switch on reading from a wearable, it also reads the workouts, sleep, and heart rate a Whoop or watch writes there.</string>
 	<key>NSHealthUpdateUsageDescription</key>
 	<string>Plate writes the calories, protein, carbs, fat, fiber, sugar, sodium, and weight you log to Apple Health.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

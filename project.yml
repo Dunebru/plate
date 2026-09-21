@@ -40,7 +40,7 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         NSCameraUsageDescription: Plate uses the camera to photograph meals and scan barcodes and nutrition labels.
         NSPhotoLibraryUsageDescription: Plate can analyze a meal photo from your library.
-        NSHealthShareUsageDescription: Plate reads your weight, steps, and active energy from Apple Health to keep your targets accurate.
+        NSHealthShareUsageDescription: Plate reads your weight, steps, and energy burned from Apple Health to keep your targets accurate. If you switch on reading from a wearable, it also reads the workouts, sleep, and heart rate a Whoop or watch writes there.
         NSHealthUpdateUsageDescription: Plate writes the calories, protein, carbs, fat, fiber, sugar, sodium, and weight you log to Apple Health.
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: false

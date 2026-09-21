@@ -124,6 +124,10 @@ enum NutritionMath {
         var carbs: Int
         var fat: Int
         var fiber: Int = 28
+        /// Grams of added sugar. A ceiling, not something to reach.
+        var sugarLimit: Int = 36
+        /// Milligrams. Also a ceiling.
+        var sodiumLimit: Int = 2300
         var waterMl: Int = 2500
         /// Signed: negative in a deficit, positive in a surplus.
         var dailyDelta: Int = 0
@@ -183,6 +187,8 @@ enum NutritionMath {
                     carbs: macros.carbs,
                     fat: macros.fat,
                     fiber: fiberTarget(calories: calories),
+                    sugarLimit: addedSugarLimit(calories: calories, sex: i.sex),
+                    sodiumLimit: sodiumLimit(),
                     waterMl: waterTarget(weightKg: i.weightKg, trainingDays: i.trainingDaysPerWeek),
                     dailyDelta: Int((calories - burn).rounded()),
                     paceKgPerWeek: pace,
@@ -238,6 +244,36 @@ enum NutritionMath {
 
     /// 14 g of fiber per 1,000 calories, the Institute of Medicine figure.
     static func fiberTarget(calories: Double) -> Int { Int((calories / 1000 * 14).rounded()) }
+
+    // MARK: Limits
+
+    /// Added sugars, not total. Plate can only see total sugar, so this is a guide rather
+    /// than a measurement, and the UI has to say so.
+    ///
+    /// Two rules, and whichever is stricter wins. WHO keeps free sugars under 10 percent of
+    /// energy, which on its own would hand a 4,000 calorie day 100 g. The AHA figures are flat
+    /// daily amounts that do not grow with appetite, so they are what caps a big eater. Below
+    /// about 1,440 calories for men and 1,000 for women the energy rule becomes the stricter of
+    /// the two and takes over. That is the right way round: a smaller day has less room for
+    /// sugar, never a larger allowance for it.
+    ///
+    /// WHO also suggests a further reduction under 5 percent, but that one is conditional and
+    /// the evidence behind it is thinner, so it is named in Sources and not enforced here.
+    static func addedSugarLimit(calories: Double, sex: Sex) -> Int {
+        let absolute = sex == .male ? 36.0 : 25.0
+        guard calories.isFinite, calories > 0 else { return Int(absolute) }
+        let fromEnergy = calories * 0.10 / 4     // 4 calories per gram of sugar
+        return Int(min(fromEnergy, absolute).rounded())
+    }
+
+    /// The sentence the sugar row has to carry, kept here beside the limit it explains so the
+    /// number and the caveat cannot drift apart.
+    static let totalVersusAddedSugarNote =
+        "This limit is for added sugar, but Plate can only see total sugar, so fruit and dairy count toward it and going over on those is not a problem."
+
+    /// Milligrams a day. Flat, because the evidence behind it is about blood pressure rather than
+    /// about energy, so it does not move with body size or with how much someone eats.
+    static func sodiumLimit() -> Int { 2300 }
 
     /// About 35 ml per kilogram, plus half a litre for each training day spread across the week.
     static func waterTarget(weightKg: Double, trainingDays: Int) -> Int {
