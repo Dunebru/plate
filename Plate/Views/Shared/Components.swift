@@ -1,10 +1,37 @@
 import SwiftUI
 
 extension Color {
+    /// One colour for each thing the app measures, defined in one place.
+    ///
+    /// Two rules hold this together. Nothing else in the app may be the accent colour, so the accent
+    /// always means calories. And green is reserved for one meaning only, which is that a target has
+    /// been reached; it is not the brand, it is a verdict. When green was also the accent those two
+    /// meanings were the same colour and neither read.
+    ///
+    /// Each is given a light and a dark value rather than one compromise. A mid blue that holds its
+    /// own against white is muddy on black, and a blue bright enough for black glares on white.
+    private static func adaptive(light: (Double, Double, Double),
+                                 dark: (Double, Double, Double)) -> Color {
+        Color(uiColor: UIColor { traits in
+            let c = traits.userInterfaceStyle == .dark ? dark : light
+            return UIColor(red: c.0, green: c.1, blue: c.2, alpha: 1)
+        })
+    }
+
     static let calories = Color.accentColor
-    static let protein = Color(red: 0.93, green: 0.35, blue: 0.35)
-    static let carbs = Color(red: 0.98, green: 0.66, blue: 0.20)
-    static let fat = Color(red: 0.30, green: 0.60, blue: 0.95)
+
+    static let protein = adaptive(light: (0.851, 0.290, 0.290), dark: (1.000, 0.420, 0.420))
+    static let carbs = adaptive(light: (0.878, 0.565, 0.063), dark: (1.000, 0.718, 0.302))
+    /// Fat used to be blue. It cannot be, now that the accent is: two different meanings a shade
+    /// apart on the same screen is how a dashboard stops being readable.
+    static let fat = adaptive(light: (0.478, 0.353, 0.973), dark: (0.655, 0.545, 0.980))
+
+    static let fiber = adaptive(light: (0.180, 0.620, 0.345), dark: (0.290, 0.871, 0.502))
+    static let sugar = adaptive(light: (0.839, 0.255, 0.494), dark: (0.957, 0.447, 0.714))
+    static let sodium = adaptive(light: (0.055, 0.549, 0.549), dark: (0.176, 0.831, 0.749))
+
+    /// A target met. The only thing this colour is allowed to say.
+    static let reached = adaptive(light: (0.180, 0.620, 0.345), dark: (0.290, 0.871, 0.502))
 }
 
 struct CardBackground: ViewModifier {

@@ -423,7 +423,7 @@ struct SettingsView: View {
                 switch keyStatus {
                 case .idle: EmptyView()
                 case .checking: ProgressView()
-                case .ok: Label("Works", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                case .ok: Label("Works", systemImage: "checkmark.circle.fill").foregroundStyle(Color.reached)
                 case .failed(let why): Text(why).font(.caption).foregroundStyle(.red).lineLimit(2)
                 }
             }

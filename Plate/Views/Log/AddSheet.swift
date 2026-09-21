@@ -19,26 +19,33 @@ struct AddSheet: View {
 
     var body: some View {
         NavigationStack(path: $path) {
-            VStack(spacing: 12) {
-                HStack(spacing: 12) {
-                    option("Scan food", "camera.fill", .camera(.food))
-                    option("Barcode", "barcode.viewfinder", .barcode)
+            // Eight equal tiles made the moment of logging a decision. Two of these get used almost
+            // every time, so they are the ones with room; the rest are a list, which is faster to
+            // read than a grid anyway once things stop being the same size.
+            ScrollView {
+                VStack(spacing: 12) {
+                    HStack(spacing: 12) {
+                        option("Photograph it", "camera.fill", .camera(.food))
+                        option("Log it again", "clock.arrow.circlepath", .repeatMeal)
+                    }
+                    VStack(spacing: 0) {
+                        row("Describe it", "Type or dictate what you ate", "text.bubble.fill", .describe)
+                        Divider().padding(.leading, 56)
+                        row("Barcode", "Scan a packet", "barcode.viewfinder", .barcode)
+                        Divider().padding(.leading, 56)
+                        row("Nutrition label", "Photograph the panel", "doc.text.viewfinder", .camera(.label))
+                        Divider().padding(.leading, 56)
+                        row("Quick add", "Just the calories", "number", .quickAdd)
+                        Divider().padding(.leading, 56)
+                        row("Saved foods", "Things you kept", "bookmark.fill", .saved)
+                        Divider().padding(.leading, 56)
+                        row("Search", "Look up a food", "magnifyingglass", .search)
+                    }
+                    .background(Color(.secondarySystemGroupedBackground),
+                                in: RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                HStack(spacing: 12) {
-                    option("Food label", "doc.text.viewfinder", .camera(.label))
-                    option("Describe", "text.bubble.fill", .describe)
-                }
-                HStack(spacing: 12) {
-                    option("Saved foods", "bookmark.fill", .saved)
-                    option("Search", "magnifyingglass", .search)
-                }
-                HStack(spacing: 12) {
-                    option("Log it again", "clock.arrow.circlepath", .repeatMeal)
-                    option("Quick add", "number", .quickAdd)
-                }
-                Spacer()
+                .padding(16)
             }
-            .padding(16)
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Log food")
             .navigationBarTitleDisplayMode(.inline)
@@ -106,17 +113,45 @@ struct AddSheet: View {
         result = meal
     }
 
+    /// The two that get used almost every time.
     private func option(_ title: String, _ symbol: String, _ route: Route) -> some View {
         Button { path.append(route) } label: {
             VStack(spacing: 10) {
                 Image(systemName: symbol).font(.title).foregroundStyle(Color.accentColor)
                 Text(title).font(.subheadline.weight(.semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
             }
             .frame(maxWidth: .infinity)
-            .frame(height: 96)
+            .frame(height: 104)
             .background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
         }
         .buttonStyle(PressableStyle())
+    }
+
+    /// Everything else. A line each, with a word on what it is for, because half of these are not
+    /// obvious from a name and an icon alone.
+    private func row(_ title: String, _ detail: String, _ symbol: String, _ route: Route) -> some View {
+        Button { path.append(route) } label: {
+            HStack(spacing: 14) {
+                Image(systemName: symbol)
+                    .font(.body)
+                    .foregroundStyle(Color.accentColor)
+                    .frame(width: 26)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(title).font(.subheadline.weight(.semibold))
+                    Text(detail).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer(minLength: 8)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(PressableStyle())
+        .accessibilityLabel("\(title). \(detail)")
     }
 }
 

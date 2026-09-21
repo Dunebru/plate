@@ -26,9 +26,9 @@ enum BreakdownNutrient: String, Identifiable, CaseIterable {
         case .protein: return .protein
         case .carbs: return .carbs
         case .fat: return .fat
-        case .fiber: return Color(red: 0.36, green: 0.72, blue: 0.45)
-        case .sugar: return Color(red: 0.80, green: 0.44, blue: 0.72)
-        case .sodium: return Color(red: 0.32, green: 0.68, blue: 0.72)
+        case .fiber: return .fiber
+        case .sugar: return .sugar
+        case .sodium: return .sodium
         }
     }
 
@@ -195,7 +195,7 @@ struct NutrientBreakdownView: View {
     private var statusTint: Color {
         guard goal > 0 else { return .secondary }
         if nutrient.isLimit { return overLimit ? .orange : .secondary }
-        return eaten >= goal ? .green : .secondary
+        return eaten >= goal ? .reached : .secondary
     }
 
     private var barTint: Color { overLimit ? .orange : nutrient.color }

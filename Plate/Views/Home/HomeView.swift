@@ -181,7 +181,7 @@ struct HomeView: View {
         let amount = Int(eaten.rounded())
         let tint: Color = nutrient.isLimit
             ? (amount > goal ? .orange : .primary)
-            : (amount >= goal ? .green : .primary)
+            : (amount >= goal ? .reached : .primary)
         let unit = nutrient.unit
         return Button { breakdown = nutrient } label: {
             micro(nutrient.title, value: amount.formatted(), goal: "/ \(goal.formatted())\(unit)", tint: tint,

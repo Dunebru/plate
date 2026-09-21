@@ -250,7 +250,7 @@ struct ProgressView_: View {
         let planPace = profile.plan.paceKgPerWeek
         let verdict = TrendEngine.verdict(rate: rate, goal: profile.goal, targetRateKg: planPace)
         let advice = TrendEngine.advice(verdict, goal: profile.goal, units: profile.units)
-        let tint: Color = rate == nil ? .secondary : (verdict.isProblem ? .orange : .green)
+        let tint: Color = rate == nil ? .secondary : (verdict.isProblem ? .orange : .reached)
 
         return HStack(alignment: .top, spacing: 12) {
             ProgressAccentBar(color: tint)
@@ -472,7 +472,7 @@ struct ProgressView_: View {
             if let goalDate, goalDate <= chartEnd {
                 RuleMark(x: .value("Goal date", goalDate))
                     .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    .foregroundStyle(Color.green)
+                    .foregroundStyle(Color.reached)
             }
         }
         .chartYScale(domain: forecastDomain(points))

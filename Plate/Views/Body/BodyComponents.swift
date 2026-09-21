@@ -120,7 +120,7 @@ enum BodyDirection {
     }
 
     static func color(change: Double, key: String, areaGoal: AreaGoal) -> Color {
-        isWanted(change: change, key: key, areaGoal: areaGoal) == true ? .green : .secondary
+        isWanted(change: change, key: key, areaGoal: areaGoal) == true ? Color.reached : .secondary
     }
 }
 

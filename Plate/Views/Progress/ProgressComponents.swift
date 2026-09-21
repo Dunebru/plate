@@ -147,7 +147,7 @@ struct ProgressConfidenceBar: View {
 
     private var color: Color {
         switch steps {
-        case 3: return .green
+        case 3: return .reached
         case 2: return .orange
         default: return .secondary
         }
