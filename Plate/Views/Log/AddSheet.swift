@@ -10,7 +10,7 @@ struct AddSheet: View {
     @State private var result: AnalyzedMeal?
     @State private var resultImage: UIImage?
 
-    enum Route: Hashable { case camera(CameraMode), barcode, describe, saved, search }
+    enum Route: Hashable { case camera(CameraMode), barcode, describe, saved, search, repeatMeal, quickAdd }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -27,6 +27,10 @@ struct AddSheet: View {
                     option("Saved foods", "bookmark.fill", .saved)
                     option("Search", "magnifyingglass", .search)
                 }
+                HStack(spacing: 12) {
+                    option("Log it again", "clock.arrow.circlepath", .repeatMeal)
+                    option("Quick add", "number", .quickAdd)
+                }
                 Spacer()
             }
             .padding(16)
@@ -41,6 +45,8 @@ struct AddSheet: View {
                 case .describe: DescribeView(context: .init(profile: profile)) { meal in present(meal, nil) }
                 case .saved: SavedFoodsView { meal in present(meal, nil) }
                 case .search: SearchFoodsView { meal in present(meal, nil) }
+                case .repeatMeal: RepeatMealView { meal in present(meal, nil) }
+                case .quickAdd: QuickAddView { meal in present(meal, nil) }
                 }
             }
             .sheet(item: $result) { meal in

@@ -33,6 +33,7 @@ struct RootView: View {
             guard !didPrepare else { return }
             didPrepare = true
             #if DEBUG
+            DemoData.seedKeyIfRequested()
             if DemoData.requested {
                 if profiles.first?.onboarded != true { DemoData.seed(into: context) }
                 return

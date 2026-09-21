@@ -7,6 +7,26 @@ import SwiftData
 enum DemoData {
     static var requested: Bool { CommandLine.arguments.contains("--demo-profile") }
 
+    /// Puts a key in the keychain so the flows that need one can be walked in the simulator.
+    ///
+    /// Typing a key into a secure field through UI automation is unreliable, which left the photo
+    /// and question flows unverifiable on a simulator and therefore untested where it counts. Debug
+    /// builds only, and the key still goes to the keychain rather than anywhere it could be read
+    /// back out of the app.
+    static func seedKeyIfRequested() {
+        let args = CommandLine.arguments
+        guard let index = args.firstIndex(of: "--api-key"), args.count > index + 1 else { return }
+        let key = args[index + 1].trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !key.isEmpty else { return }
+        if let name = args.firstIndex(of: "--provider").map({ args.count > $0 + 1 ? args[$0 + 1] : "" }),
+           let provider = AIProvider(rawValue: name) {
+            AIProvider.current = provider
+            Keychain.set(key, for: provider.keyAccount)
+        } else {
+            Keychain.set(key, for: AIProvider.current.keyAccount)
+        }
+    }
+
     static func seed(into context: ModelContext) {
         try? context.delete(model: MealEntry.self)
         try? context.delete(model: WeightEntry.self)
