@@ -46,6 +46,9 @@ struct ProgressView_: View {
             }
             .background(Color(.systemGroupedBackground))
             .navigationTitle("Progress")
+            // The burn card reads this snapshot, so it has to be filled before the card can use it.
+            // Silent and cheap when the wearable switch is off, which is the normal case.
+            .task { await health.refreshSignals(prediction: .init(profile.inputs)) }
             .sheet(isPresented: $logging) { logWeightSheet }
             .sensoryFeedback(.success, trigger: applied)
             .sensoryFeedback(.increase, trigger: weights.count)
@@ -288,7 +291,12 @@ struct ProgressView_: View {
         // A little more than the 28 day window the estimate uses, so nothing gets clipped.
         let intake = intakeSeries(days: 35, endingOn: endDate)
         let predicted = NutritionMath.tdee(profile.inputs)
-        let estimate = TrendEngine.adaptiveTDEE(intakeByDay: intake, trend: trend, predictedTDEE: predicted)
+        // A wearable's number is a better starting guess than an equation, so it stands in as the
+        // prior that energy balance is measured against. It is not the answer on its own: a device
+        // models a burn, it does not weigh anyone.
+        let prior = HealthSignals.prior(measured: health.signals.burn, predictedTDEE: predicted)
+        let estimate = TrendEngine.adaptiveTDEE(intakeByDay: intake, trend: trend, predictedTDEE: prior)
+        let wearable = health.signals.burn
 
         return VStack(alignment: .leading, spacing: 12) {
             ProgressCardTitle(text: "Measured burn", symbol: "flame")
@@ -297,7 +305,8 @@ struct ProgressView_: View {
                                  caption: "Maintenance worked out from \(e.days) days of trend, \(e.loggedDays) of them with food logged.")
                 ProgressConfidenceBar(confidence: e.confidence)
                 HStack(alignment: .top, spacing: 18) {
-                    pair("Predicted", "\(Int(predicted.rounded())) kcal")
+                    pair(wearable == nil ? "Predicted" : "Starting point",
+                         "\(Int(prior.rounded())) kcal")
                     pair("Average intake", "\(e.averageIntake) kcal")
                     Spacer(minLength: 0)
                 }
@@ -319,6 +328,10 @@ struct ProgressView_: View {
                     Text("Too thin a record to act on yet. Keep logging and this firms up.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
+                }
+                if let wearable {
+                    ProgressNote(text: "Started from \(wearable.source.label), which read \(wearable.tdee) kcal over \(wearable.days > 0 ? "\(wearable.days) days" : "\(wearable.sessions) sessions"). What you weigh and what you eat still decide the figure above.",
+                                 symbol: "applewatch")
                 }
                 ProgressNote(text: "This measures you. A prediction equation only ever averages a study population.",
                              symbol: "person.crop.circle.badge.checkmark")

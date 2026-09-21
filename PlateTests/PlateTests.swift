@@ -1350,7 +1350,7 @@ final class WearableSignalsTests: XCTestCase {
 
     // MARK: Who wrote it
 
-    func testWhoopIsRecognisedByBundleAndByName() {
+    func testWhoopIsRecognizedByBundleAndByName() {
         XCTAssertEqual(HealthSignals.classify(bundleIdentifier: "com.whoop.iphone",
                                               productType: "iPhone14,2", name: "WHOOP"), .whoop)
         XCTAssertEqual(HealthSignals.classify(bundleIdentifier: "com.example.bridge",
@@ -1400,7 +1400,7 @@ final class WearableSignalsTests: XCTestCase {
         let burn = HealthSignals.measuredBurn(days: days(28, active: 2400, basal: 1700),
                                               workouts: [], source: .whoop,
                                               prediction: prediction)
-        XCTAssertNil(burn, "movement beating the entire resting burn every day is a mislabelled total")
+        XCTAssertNil(burn, "movement beating the entire resting burn every day is a mislabeled total")
     }
 
     func testDaysTheDeviceWasNotWornDoNotCount() {
@@ -1523,5 +1523,48 @@ final class WearableSignalsTests: XCTestCase {
     func testNoWorkoutsMeansNoWeeklyPicture() {
         XCTAssertNil(HealthSignals.trainingWeek([], overDays: 28))
         XCTAssertNil(HealthSignals.trainingWeek(sessions(3, kcal: 100, minutes: 5), overDays: 28))
+    }
+}
+
+/// The target already contains a normal day's movement, so only the part of a measured day that
+/// beats that assumption is new. Getting this wrong adds several hundred calories every day, and
+/// with a watch closer to seven hundred, which is the difference between losing and gaining.
+final class ExerciseCalorieTests: XCTestCase {
+    private func inputs() -> NutritionMath.Inputs {
+        var i = NutritionMath.Inputs(sex: .male, age: 27, heightCm: 180, weightKg: 84,
+                                     activity: .light, goal: .lose, paceKgPerWeek: 0.5)
+        i.dailyActivity = .desk
+        i.trainingStyle = .strength
+        i.trainingDaysPerWeek = 4
+        i.trainingMinutes = 60
+        return i
+    }
+
+    /// Everything above resting is already spoken for by the activity factor.
+    private func extra(_ measured: Double, _ i: NutritionMath.Inputs) -> Double {
+        max(0, measured - (NutritionMath.tdee(i) - NutritionMath.bmr(i)))
+    }
+
+    func testAnOrdinaryDayEarnsNothingExtra() {
+        let i = inputs()
+        let assumed = NutritionMath.tdee(i) - NutritionMath.bmr(i)
+        XCTAssertEqual(extra(assumed, i), 0, accuracy: 0.01)
+        // A quieter than usual day must never hand back calories either.
+        XCTAssertEqual(extra(assumed * 0.5, i), 0, accuracy: 0.01)
+    }
+
+    func testOnlyTheSurplusIsAdded() {
+        let i = inputs()
+        let assumed = NutritionMath.tdee(i) - NutritionMath.bmr(i)
+        XCTAssertEqual(extra(assumed + 300, i), 300, accuracy: 0.01)
+    }
+
+    /// The old behaviour added the whole measured figure. This pins the size of that mistake so
+    /// nobody reintroduces it thinking it looks generous.
+    func testTheOldBehaviourWouldHaveDoubleCounted() {
+        let i = inputs()
+        let measured = NutritionMath.tdee(i) - NutritionMath.bmr(i)
+        XCTAssertGreaterThan(measured, 400, "an active day is worth hundreds of calories")
+        XCTAssertEqual(extra(measured, i), 0, accuracy: 0.01)
     }
 }

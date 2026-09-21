@@ -177,10 +177,13 @@ extension HealthStore {
         let start = cal.date(byAdding: .day, value: -windowDays, to: end) ?? end
 
         var snapshot = HealthSignals.Snapshot(readAt: Date())
+        // The list runs up to this minute, because a session finished an hour ago should be on
+        // screen. The arithmetic below keeps to whole days, so a session today is not divided
+        // across a window it does not belong to yet.
         snapshot.workouts = await recentWorkouts(from: start, to: Date())
         snapshot.training = HealthSignals.trainingWeek(snapshot.workouts, overDays: windowDays)
         snapshot.burn = await measuredBurn(from: start, to: end,
-                                           workouts: snapshot.workouts,
+                                           workouts: snapshot.workouts.filter { $0.end < end },
                                            prediction: prediction,
                                            windowDays: windowDays)
         snapshot.recovery = await recovery()

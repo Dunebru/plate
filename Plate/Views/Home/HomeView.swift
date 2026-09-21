@@ -26,8 +26,23 @@ struct HomeView: View {
             target = (weekday == 1 || weekday == 7) ? split.higher : split.lower
         }
         if profile.rolloverCalories { target += DayStats.rollover(target: profile.calorieTarget, meals: meals, today: day) }
-        if profile.addExerciseCalories, isToday { target += Int(health.activeEnergyToday) }
+        if profile.addExerciseCalories, isToday {
+            target += Int(extraBurnToday.rounded())
+        }
         return target
+    }
+
+    /// How much of today's measured movement the plan has not already paid for.
+    ///
+    /// The target is not a resting figure. It is resting burn multiplied by an activity factor that
+    /// already contains everyday movement and training, so everything above resting is spoken for:
+    /// that is exactly `tdee - bmr`. Adding a watch's whole active energy on top counted all of it a
+    /// second time, which is several hundred calories a day and, with a watch, closer to seven. Only
+    /// the part of today that beat the plan's own assumption is new information.
+    private var extraBurnToday: Double {
+        let inputs = profile.inputs
+        let alreadyCounted = NutritionMath.tdee(inputs) - NutritionMath.bmr(inputs)
+        return max(0, health.activeEnergyToday - alreadyCounted)
     }
 
     var body: some View {
@@ -93,8 +108,11 @@ struct HomeView: View {
                 HStack(spacing: 10) {
                     small("\(Int(totals.calories.rounded()))", "eaten")
                     small("\(calorieTarget)", "target")
-                    if profile.addExerciseCalories, health.activeEnergyToday > 0 {
-                        small("\(Int(health.activeEnergyToday))", "burned")
+                    // What the target actually moved by, not what the watch measured. The plan had
+                    // already assumed a normal day's movement, so showing the raw figure here would
+                    // not add up against the number beside it.
+                    if profile.addExerciseCalories, extraBurnToday >= 1 {
+                        small("+\(Int(extraBurnToday.rounded()))", "earned")
                     }
                 }
                 .padding(.top, 6)

@@ -363,6 +363,9 @@ struct SettingsView: View {
                         Text(wearableSummary).font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                // Read again whenever this row comes back on screen, so a fresh launch shows what
+                // is there rather than waiting to be asked.
+                .task { await refreshSignals() }
             }
         } header: {
             Text("Apple Health")
