@@ -20,23 +20,59 @@ struct Coach {
         var text: String
     }
 
+    /// The instructions the coach answers under.
+    ///
+    /// An earlier version said to answer only from the brief. That made it refuse the thing people
+    /// most want from it: what should I eat next. It also made it claim not to know facts it had been
+    /// given. A calorie app's assistant has to be able to use ordinary nutrition knowledge, or it is
+    /// a search box over one table. What it must not do is invent facts about this person, wander off
+    /// into work that has nothing to do with food, or practise medicine.
     static let system = """
-    You answer questions about one person's own food and weight data inside a calorie tracking app. \
-    You are given a brief containing everything the app knows about them. Answer only from that brief. \
-    If the brief does not contain what is needed, say which number is missing and how they would log it, \
-    rather than guessing or inventing a figure. Never restate the whole brief back to them.
+    You are the assistant inside a calorie and weight tracking app, talking to its owner. You are given \
+    a brief holding everything the app knows about them. Be genuinely useful about food, nutrition, \
+    training and body composition.
 
-    Be short. Two or three sentences for most questions, a few brief lines when a list genuinely helps. \
-    Lead with the answer, then the number that supports it. Use their units exactly as the brief gives them.
+    Two different kinds of knowledge, and the difference matters. Facts about this person come only \
+    from the brief: their weight, height, targets, what they logged, how the trend is moving. Never \
+    invent one, and never say you do not know something the brief plainly contains. General knowledge \
+    about food and nutrition is yours to use freely: what is in a food, roughly how many calories \
+    something has, which foods are high in protein, how fiber or sodium work, what a sensible meal \
+    looks like. Combining the two is the whole job.
 
-    Be honest about uncertainty. A photo estimate of a meal is roughly right, not exact, and a few days \
-    of data cannot show a trend. Say so when it matters rather than sounding more certain than the data allows.
+    So answer questions like these properly, with real suggestions and real numbers: what should I eat \
+    next, what hits my remaining protein without going over, what is a high protein breakfast, is this \
+    meal a good idea, why am I always hungry in the evening, what should I order at a restaurant, how \
+    do I get more fiber. Give specific foods and rough portions, and check them against what is left \
+    in their day. When you give calories or macros for a food you are suggesting, say they are \
+    approximate, because they are.
 
-    You are not a doctor or a dietitian. Do not diagnose, do not interpret symptoms, and do not give advice \
-    about medication, supplements, pregnancy, or eating disorders. If a question heads that way, say plainly \
-    that it needs a professional and answer only the part you can from the data. If someone describes \
-    restricting heavily or asks how to eat far below the floor the app sets, do not help with that; say why \
-    and suggest they talk to someone.
+    Do the arithmetic when it helps. If they have 620 kcal and 48 g of protein left, say what actually \
+    fits, not that it depends.
+
+    Respect what the brief says about how they eat. Never suggest a food they have said they avoid, and \
+    keep to their way of eating unless they ask you to step outside it. Avoid the exact foods listed and \
+    obvious forms of them, not the whole category they sit in: someone who does not eat shellfish can \
+    still eat fish, and someone avoiding mushrooms can still eat vegetables. Refusing a whole food group \
+    over one item is its own kind of unhelpful.
+
+    Be short. Two or three sentences for most questions. A short list when a list genuinely helps, never \
+    more than about six items. Lead with the answer. Use their units exactly as the brief gives them. \
+    Do not restate the brief back at them, and do not pad.
+
+    Be honest about uncertainty. A photo estimate is roughly right, not exact. A few days of data cannot \
+    show a trend. Say so when it matters rather than sounding more certain than the data allows.
+
+    Stay on this app's subject. Food, nutrition, cooking, eating out, weight, training, sleep and \
+    recovery as they relate to any of that, and how to use this app. If asked for something unrelated, \
+    such as writing code, doing someone's maths, drafting an email, or general trivia, say in one line \
+    that this assistant is only about their food and health, and offer what you can do instead. Do not \
+    attempt it anyway.
+
+    You are not a doctor or a dietitian. Do not diagnose, do not interpret symptoms, and do not advise \
+    on medication, supplements, pregnancy, or treating an eating disorder. Say plainly that it needs a \
+    professional, then answer any part you can from the food side. If someone wants to eat far below the \
+    floor this app sets, or describes restricting heavily, do not help with that: say why in a sentence, \
+    without lecturing, and suggest talking to someone.
 
     Use American English and never use em dashes.
     """
@@ -65,10 +101,34 @@ struct Coach {
 
         lines.append("Today is \(today.formatted(date: .abbreviated, time: .omitted)).")
 
-        // Who they are and what they asked the app for.
-        var about = "They are \(profile.age) and \(profile.sex.label.lowercased())."
+        // Who they are. Height was missing from this list for a while, so the coach told its owner it
+        // did not know their height while the app displayed it two screens away. Anything the app
+        // shows about a person belongs here.
+        var about = "They are \(profile.age), \(profile.sex.label.lowercased()), "
+        about += "\(Units.heightString(profile.heightCm, units)) tall, "
+        about += "and weigh \(Units.weightString(profile.weightKg, units))."
         about += " Goal: \(profile.goal.label.lowercased())."
+        if profile.goal.changesWeight, profile.targetWeightKg > 0 {
+            about += " Aiming for \(Units.weightString(profile.targetWeightKg, units))"
+            about += " at \(Units.weightString(profile.paceKgPerWeek, units, decimals: 2)) a week."
+        }
         lines.append(about)
+
+        // How they live, which is what any suggestion has to fit around.
+        var habits: [String] = []
+        if let activity = profile.dailyActivity { habits.append("Everyday movement: \(activity.label.lowercased()).") }
+        if profile.trainingStyle != .none {
+            habits.append("Trains: \(profile.trainingStyle.label.lowercased()), "
+                          + "\(profile.trainingDaysPerWeek) days a week, \(profile.trainingMinutes) minutes a session.")
+        } else {
+            habits.append("Does not train.")
+        }
+        habits.append("Way of eating: \(profile.diet.label.lowercased()).")
+        habits.append("Usual day: \(profile.mealPattern.label.lowercased()).")
+        if !profile.avoids.isEmpty {
+            habits.append("DOES NOT EAT, never suggest these: \(profile.avoids.joined(separator: ", ")).")
+        }
+        lines.append(habits.joined(separator: " "))
         lines.append("Baseline daily targets: \(profile.calorieTarget) kcal, \(profile.proteinTarget) g protein, "
                      + "\(profile.carbTarget) g carbs, \(profile.fatTarget) g fat, \(profile.fiberTarget) g fiber. "
                      + "Limits: \(profile.sugarLimit) g added sugar, \(profile.sodiumLimit) mg sodium.")
@@ -83,12 +143,30 @@ struct Coach {
         }
         lines.append(todayLine)
 
+        // What is left, spelled out per macro. This is the working for "what should I eat next", and
+        // without it the answer can only be vague.
         let eatenToday = DayStats.totals(on: today, meals: meals)
+        let left = target.total - Int(eatenToday.calories.rounded())
+        func remaining(_ eaten: Double, _ goal: Int) -> String {
+            let gap = goal - Int(eaten.rounded())
+            return gap >= 0 ? "\(gap) g left" : "\(abs(gap)) g over"
+        }
         if eatenToday.calories > 0 {
-            let left = target.total - Int(eatenToday.calories.rounded())
-            lines.append("So far today: \(Int(eatenToday.calories.rounded())) kcal, "
-                         + "\(Int(eatenToday.protein.rounded())) g protein. "
-                         + (left >= 0 ? "\(left) kcal left." : "\(abs(left)) kcal over."))
+            lines.append("So far today they have eaten \(Int(eatenToday.calories.rounded())) kcal, "
+                         + "\(Int(eatenToday.protein.rounded())) g protein, "
+                         + "\(Int(eatenToday.carbs.rounded())) g carbs, "
+                         + "\(Int(eatenToday.fat.rounded())) g fat, "
+                         + "\(Int(eatenToday.fiber.rounded())) g fiber.")
+            lines.append("LEFT FOR TODAY: \(left >= 0 ? "\(left) kcal" : "\(abs(left)) kcal over"), "
+                         + "protein \(remaining(eatenToday.protein, profile.proteinTarget)), "
+                         + "carbs \(remaining(eatenToday.carbs, profile.carbTarget)), "
+                         + "fat \(remaining(eatenToday.fat, profile.fatTarget)), "
+                         + "fiber \(remaining(eatenToday.fiber, profile.fiberTarget)). "
+                         + "Sugar so far \(Int(eatenToday.sugar.rounded())) g of \(profile.sugarLimit) g, "
+                         + "sodium \(Int(eatenToday.sodium.rounded())) mg of \(profile.sodiumLimit) mg.")
+        } else {
+            lines.append("Nothing logged yet today, so the whole allowance of \(target.total) kcal "
+                         + "and \(profile.proteinTarget) g protein is still to come.")
         }
 
         // Weight and where it is going, which is the question most people actually have.
@@ -107,9 +185,16 @@ struct Coach {
         }
 
         if let bodyFat = profile.bodyFat {
-            lines.append("Body fat: \(Int(bodyFat.percent.rounded())) percent, "
-                         + "\(bodyFat.source == .estimated ? "estimated from height and weight" : "from tape measurements").")
+            var body = "Body fat: \(Int(bodyFat.percent.rounded())) percent, "
+                + "\(bodyFat.source == .estimated ? "estimated from height and weight" : "from tape measurements")."
+            let lean = profile.weightKg * (1 - bodyFat.percent / 100)
+            body += " Lean mass about \(Units.weightString(lean, units))."
+            lines.append(body)
         }
+        if !profile.focusAreas.isEmpty {
+            lines.append("Wants to change: \(profile.focusAreas.map { $0.label.lowercased() }.joined(separator: ", ")).")
+        }
+        lines.append("Water target \(profile.waterMl) ml a day.")
 
         // Two weeks of intake. Days with nothing logged are stated as gaps rather than zeros, because
         // a zero would read as fasting and skew anything the model says about averages.
@@ -195,7 +280,9 @@ struct Coach {
                     "How did you work out my calorie target?",
                     "Why does the trend line matter more than the scale?"]
         }
-        var list = ["Where is most of my protein coming from?",
+        var list = ["What should I eat next?",
+                    "What hits my remaining protein without going over?",
+                    "Where is most of my protein coming from?",
                     "What is quietly costing me the most calories?",
                     "Am I on track for my goal?"]
         if profile.goal == .lose { list.append("Why has the scale not moved this week?") }

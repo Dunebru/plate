@@ -1766,3 +1766,90 @@ final class FoodCorrectionTests: XCTestCase {
         XCTAssertFalse(context.promptLine.lowercased().contains("corrected portions"))
     }
 }
+
+
+/// The coach told its owner it did not know their height while the app showed it two screens away,
+/// because the brief simply never carried it. These pin the contents so a fact the app displays
+/// cannot silently go missing from what the coach is told.
+final class CoachBriefTests: XCTestCase {
+    private func profile() -> Profile {
+        let p = Profile()
+        p.sex = .male
+        p.heightCm = 180
+        p.weightKg = 84.2
+        p.birthDate = Calendar.current.date(byAdding: .year, value: -27, to: Date())
+        p.goal = .lose
+        p.targetWeightKg = 77
+        p.paceKgPerWeek = 0.5
+        p.dailyActivity = .desk
+        p.trainingStyle = .strength
+        p.trainingDaysPerWeek = 4
+        p.trainingMinutes = 60
+        p.diet = .highProtein
+        p.avoids = ["shellfish"]
+        p.calorieTarget = 2390
+        p.proteinTarget = 181
+        p.onboarded = true
+        return p
+    }
+
+    func testTheBriefCarriesTheBodyFactsTheAppDisplays() {
+        let text = Coach.brief(profile: profile(), meals: [], weights: []).text
+        XCTAssertTrue(text.contains("180"), "height is missing\n\(text)")
+        XCTAssertTrue(text.contains("84"), "weight is missing")
+        XCTAssertTrue(text.contains("27"), "age is missing")
+        XCTAssertTrue(text.contains("77"), "target weight is missing")
+    }
+
+    func testTheBriefCarriesHowTheyLive() {
+        let text = Coach.brief(profile: profile(), meals: [], weights: []).text.lowercased()
+        XCTAssertTrue(text.contains("high protein"), "way of eating is missing")
+        XCTAssertTrue(text.contains("shellfish"), "foods avoided are missing")
+        XCTAssertTrue(text.contains("trains"), "training is missing")
+    }
+
+    /// A suggestion has to fit what is left, so the gap per macro has to be in the brief.
+    func testTheBriefSpellsOutWhatIsLeftToday() {
+        let text = Coach.brief(profile: profile(), meals: [], weights: []).text
+        XCTAssertTrue(text.contains("2390"), "today's allowance is missing")
+        XCTAssertTrue(text.lowercased().contains("nothing logged yet today"))
+    }
+
+    /// Foods someone avoids must be stated as a prohibition, not buried as a preference.
+    func testAvoidedFoodsAreStatedAsAProhibition() {
+        let text = Coach.brief(profile: profile(), meals: [], weights: []).text
+        XCTAssertTrue(text.contains("never suggest"), "avoids must read as a rule\n\(text)")
+    }
+}
+
+/// What the assistant is allowed to do, and what it is not. The complaint that started this was that
+/// it refused to answer what should I eat next, which is the main thing anyone wants to ask it.
+final class CoachScopeTests: XCTestCase {
+    func testItIsToldToUseGeneralNutritionKnowledge() {
+        let s = Coach.system.lowercased()
+        XCTAssertTrue(s.contains("general knowledge about food"))
+        XCTAssertFalse(s.contains("answer only from that brief"),
+                       "answering only from the brief is what stopped it suggesting food")
+    }
+
+    func testItIsToldToAnswerWhatToEatNext() {
+        XCTAssertTrue(Coach.system.lowercased().contains("what should i eat next"))
+    }
+
+    func testItStillRefusesWorkThatIsNotAboutFood() {
+        let s = Coach.system.lowercased()
+        XCTAssertTrue(s.contains("writing code"))
+        XCTAssertTrue(s.contains("do not attempt it anyway"))
+    }
+
+    func testItStillRefusesToPractiseMedicine() {
+        let s = Coach.system.lowercased()
+        XCTAssertTrue(s.contains("not a doctor"))
+        XCTAssertTrue(s.contains("eating disorder"))
+    }
+
+    func testSuggestionsLeadWithWhatToEatNext() {
+        let list = Coach.suggestions(profile: Profile(), hasMeals: true)
+        XCTAssertEqual(list.first, "What should I eat next?")
+    }
+}
