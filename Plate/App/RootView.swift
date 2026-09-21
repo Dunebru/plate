@@ -66,13 +66,15 @@ struct RootView: View {
 struct MainTabView: View {
     @Bindable var profile: Profile
     @State private var tab: TabChoice = .today
+    @StateObject private var quick = QuickAction.shared
+    @State private var launchRoute: AddSheet.Route?
 
     enum TabChoice: String, Hashable { case today, progress, ask, body, settings }
 
     var body: some View {
         TabView(selection: $tab) {
             Tab("Today", systemImage: "fork.knife", value: TabChoice.today) {
-                HomeView(profile: profile)
+                HomeView(profile: profile, launchRoute: $launchRoute)
             }
             Tab("Progress", systemImage: "chart.line.uptrend.xyaxis", value: TabChoice.progress) {
                 ProgressView_(profile: profile)
@@ -101,6 +103,24 @@ struct MainTabView: View {
             if profile.writeToHealth, HealthStore.available {
                 await HealthStore.shared.requestAuthorization()
             }
+            handleQuickAction()
+        }
+        // The app may already be running when the Action Button is pressed, so this has to be
+        // watched rather than only read once at launch.
+        .onChange(of: quick.pending) { _, _ in handleQuickAction() }
+    }
+
+    private func handleQuickAction() {
+        guard let action = quick.take() else { return }
+        switch action {
+        case .scanMeal:
+            tab = .today
+            launchRoute = .camera(.food)
+        case .describeMeal:
+            tab = .today
+            launchRoute = .describe
+        case .ask:
+            tab = .ask
         }
     }
 }

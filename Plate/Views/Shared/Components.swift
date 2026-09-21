@@ -103,7 +103,7 @@ struct MacroCard: View {
                     .font(.system(.title2, design: .rounded).weight(.bold))
                     .monospacedDigit()
                     .contentTransition(.numericText())
-                Text("/ \(Int(target)) g")
+                Text("/ \(Int(target))g")
                     .font(.footnote)
                     .foregroundStyle(.secondary)
             }
@@ -171,7 +171,7 @@ struct EmptyStateView: View {
 
 extension Double {
     var kcalString: String { "\(Int(self.rounded())) kcal" }
-    var gramsString: String { "\(Int(self.rounded())) g" }
+    var gramsString: String { "\(Int(self.rounded()))g" }
 }
 
 extension Date {

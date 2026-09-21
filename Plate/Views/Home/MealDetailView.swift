@@ -96,7 +96,7 @@ struct ItemEditorRow: View {
                         NumberField(title: "qty", value: $quantity, decimals: stepSize >= 10 ? 0 : 2).frame(width: 56)
                         Text(unit).foregroundStyle(.secondary)
                         if let g = gramsPerUnit {
-                            Text("(\(Int((g * quantity).rounded())) g)").foregroundStyle(.tertiary)
+                            Text("(\(Int((g * quantity).rounded()))g)").foregroundStyle(.tertiary)
                         }
                     }
                     .font(.subheadline)
@@ -125,10 +125,10 @@ struct TotalsGrid: View {
 
     var body: some View {
         Grid(alignment: .leading, horizontalSpacing: 20, verticalSpacing: 6) {
-            GridRow { cell("Calories", "\(Int(n.calories.rounded()))"); cell("Protein", "\(Int(n.protein.rounded())) g") }
-            GridRow { cell("Carbs", "\(Int(n.carbs.rounded())) g"); cell("Fat", "\(Int(n.fat.rounded())) g") }
-            GridRow { cell("Fiber", "\(Int(n.fiber.rounded())) g"); cell("Sugar", "\(Int(n.sugar.rounded())) g") }
-            GridRow { cell("Sodium", "\(Int(n.sodium.rounded())) mg"); Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]) }
+            GridRow { cell("Calories", "\(Int(n.calories.rounded()))"); cell("Protein", "\(Int(n.protein.rounded()))g") }
+            GridRow { cell("Carbs", "\(Int(n.carbs.rounded()))g"); cell("Fat", "\(Int(n.fat.rounded()))g") }
+            GridRow { cell("Fiber", "\(Int(n.fiber.rounded()))g"); cell("Sugar", "\(Int(n.sugar.rounded()))g") }
+            GridRow { cell("Sodium", "\(Int(n.sodium.rounded()))mg"); Color.clear.gridCellUnsizedAxes([.horizontal, .vertical]) }
         }
     }
 

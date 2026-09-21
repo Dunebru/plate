@@ -184,12 +184,12 @@ struct NutrientBreakdownView: View {
         let limit = goal.formatted()
         if nutrient.isLimit {
             return eaten > goal
-                ? "\((eaten - goal).formatted()) \(nutrient.unit) over the \(limit) \(nutrient.unit) limit"
-                : "\((goal - eaten).formatted()) \(nutrient.unit) under the \(limit) \(nutrient.unit) limit"
+                ? "\((eaten - goal).formatted())\(nutrient.unit) over the \(limit)\(nutrient.unit) limit"
+                : "\((goal - eaten).formatted())\(nutrient.unit) under the \(limit)\(nutrient.unit) limit"
         }
         return eaten >= goal
-            ? "Target of \(limit) \(nutrient.unit) reached"
-            : "\((goal - eaten).formatted()) \(nutrient.unit) short of your \(limit) \(nutrient.unit) target"
+            ? "Target of \(limit)\(nutrient.unit) reached"
+            : "\((goal - eaten).formatted())\(nutrient.unit) short of your \(limit)\(nutrient.unit) target"
     }
 
     private var statusTint: Color {
@@ -271,7 +271,7 @@ private struct ContributionRow: View {
             }
             Spacer(minLength: 8)
             VStack(alignment: .trailing, spacing: 3) {
-                Text("\(Int(row.amount.rounded()).formatted()) \(unit)")
+                Text("\(Int(row.amount.rounded()).formatted())\(unit)")
                     .font(.system(.subheadline, design: .rounded).weight(.bold))
                     .monospacedDigit()
                 Text(shareText).font(.caption).foregroundStyle(.secondary).monospacedDigit()

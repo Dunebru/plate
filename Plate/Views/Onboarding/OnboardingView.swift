@@ -1547,7 +1547,7 @@ struct OnboardingView: View {
     private func changeLine(_ chunk: Chunk, from before: NutritionMath.Plan, to now: NutritionMath.Plan) -> String {
         var moves: [String] = []
         if before.calories != now.calories { moves.append("calories from \(before.calories) to \(now.calories)") }
-        if before.protein != now.protein { moves.append("protein from \(before.protein) g to \(now.protein) g") }
+        if before.protein != now.protein { moves.append("protein from \(before.protein)g to \(now.protein)g") }
         if before.method != now.method { moves.append("your resting burn onto \(now.method)") }
         guard !moves.isEmpty else {
             return "\(chunk.title) answered. Nothing moved, which means the defaults already matched you."

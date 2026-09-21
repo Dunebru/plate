@@ -54,6 +54,7 @@ struct CameraFlowView: View {
             ZStack {
                 CameraPreview(session: camera.session)
                     .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                if camera.authorized { ReticleOverlay(mode: mode) }
                 if !camera.authorized {
                     VStack(spacing: 8) {
                         Image(systemName: "camera.fill").font(.largeTitle)
@@ -212,4 +213,96 @@ struct CameraPreview: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: PreviewView, context: Context) {}
+}
+
+/// The corner brackets over the camera.
+///
+/// They are not decoration. A photo taken from an angle, or with half the plate out of frame, is the
+/// main reason a portion comes back wrong, and telling someone that in a sentence under the viewfinder
+/// does not change how they hold the phone. A shape to fill does. The brackets are square for a plate
+/// and wide for a nutrition panel, because those are the shapes of the two things being photographed.
+private struct ReticleOverlay: View {
+    var mode: CameraMode
+    @State private var breathing = false
+
+    private var aspect: CGFloat { mode == .food ? 1 : 1.6 }
+
+    var body: some View {
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height / aspect) * 0.82
+            let size = CGSize(width: side, height: side / aspect)
+            ZStack {
+                // A soft scrim outside the frame, so the eye goes to what is inside it.
+                Color.black.opacity(0.28)
+                    .reverseMask {
+                        RoundedRectangle(cornerRadius: 22, style: .continuous)
+                            .frame(width: size.width, height: size.height)
+                    }
+                Brackets()
+                    .stroke(Color.white.opacity(0.95), style: StrokeStyle(lineWidth: 3, lineCap: .round))
+                    .frame(width: size.width, height: size.height)
+                    .shadow(color: .black.opacity(0.35), radius: 3, y: 1)
+                    .scaleEffect(breathing ? 1.012 : 1)
+            }
+            .frame(width: geo.size.width, height: geo.size.height)
+            .allowsHitTesting(false)
+        }
+        .onAppear {
+            // Slow enough to read as alive rather than as something demanding attention.
+            withAnimation(.easeInOut(duration: 2.4).repeatForever(autoreverses: true)) {
+                breathing = true
+            }
+        }
+    }
+}
+
+/// Four corners rather than a closed rectangle. A full box reads as a boundary you must not cross,
+/// which makes people shrink the food inside it; corners read as an alignment guide.
+private struct Brackets: Shape {
+    var corner: CGFloat = 26
+
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        let r: CGFloat = 18
+        let c = min(corner, min(rect.width, rect.height) / 3)
+
+        // Top left
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY + c))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.minY + r))
+        path.addQuadCurve(to: CGPoint(x: rect.minX + r, y: rect.minY),
+                          control: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.minX + c, y: rect.minY))
+        // Top right
+        path.move(to: CGPoint(x: rect.maxX - c, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX - r, y: rect.minY))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX, y: rect.minY + r),
+                          control: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY + c))
+        // Bottom right
+        path.move(to: CGPoint(x: rect.maxX, y: rect.maxY - c))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY - r))
+        path.addQuadCurve(to: CGPoint(x: rect.maxX - r, y: rect.maxY),
+                          control: CGPoint(x: rect.maxX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.maxX - c, y: rect.maxY))
+        // Bottom left
+        path.move(to: CGPoint(x: rect.minX + c, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX + r, y: rect.maxY))
+        path.addQuadCurve(to: CGPoint(x: rect.minX, y: rect.maxY - r),
+                          control: CGPoint(x: rect.minX, y: rect.maxY))
+        path.addLine(to: CGPoint(x: rect.minX, y: rect.maxY - c))
+        return path
+    }
+}
+
+private extension View {
+    /// Punches a hole through a view, so the scrim dims everything except the frame.
+    func reverseMask<Mask: View>(@ViewBuilder _ mask: () -> Mask) -> some View {
+        self.mask {
+            ZStack {
+                Rectangle()
+                mask().blendMode(.destinationOut)
+            }
+            .compositingGroup()
+        }
+    }
 }

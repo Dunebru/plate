@@ -346,15 +346,21 @@ struct SettingsView: View {
             Toggle("Read my wearable", isOn: $readWearable)
                 .onChange(of: readWearable) { _, on in
                     if on {
+                        // Reading a burn and then not counting it is the wrong half of the feature.
+                        // Someone who connects a band expects a hard day to show up in the budget, so
+                        // the switch that lets it through is turned on with it and named below.
+                        profile.addExerciseCalories = true
                         Task {
                             await HealthStore.shared.requestSignalAuthorization()
                             await refreshSignals()
+                            await HealthStore.shared.refreshToday()
                         }
                     } else {
                         HealthStore.shared.signals = HealthSignals.Snapshot()
                     }
                 }
             if readWearable {
+                Toggle("Count it toward today", isOn: $profile.addExerciseCalories)
                 NavigationLink {
                     HealthSignalsView(profile: profile)
                 } label: {
@@ -370,7 +376,7 @@ struct SettingsView: View {
         } header: {
             Text("Apple Health")
         } footer: {
-            Text("Meals are written as dietary energy, protein, carbs, fat, fiber, sugar, and sodium. Editing or deleting a meal updates Health. A Whoop, an Apple Watch or anything else that writes into Health can fill in your burn, your workouts, and your sleep and heart rate as context. Whole days only, and one source at a time so two devices are never counted twice.")
+            Text("Meals are written as dietary energy, protein, carbs, fat, fiber, sugar, and sodium. Editing or deleting a meal updates Health. A Whoop, an Apple Watch or anything else that writes into Health can fill in your burn, your workouts, and your sleep and heart rate as context, and one source at a time so two devices are never counted twice.\n\nCounting it toward today only ever adds the part of the day that beat what your plan already assumed. Your target is not a resting figure: it already contains a normal day of moving about and your usual training, so adding a whole day's burn on top would count most of it twice.")
         }
     }
 

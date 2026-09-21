@@ -7,6 +7,8 @@ struct HomeView: View {
     @Query(sort: \MealEntry.date, order: .reverse) private var meals: [MealEntry]
     @StateObject private var health = HealthStore.shared
     @State private var day = Date()
+    /// Set by the Action Button or Siri, so the sheet can open straight onto the camera.
+    var launchRoute: Binding<AddSheet.Route?> = .constant(nil)
     @State private var showAdd = false
     @State private var editing: MealEntry?
     @State private var breakdown: BreakdownNutrient?
@@ -69,7 +71,18 @@ struct HomeView: View {
                     .accessibilityLabel("\(streak) day streak")
                 }
             }
-            .sheet(isPresented: $showAdd) { AddSheet(profile: profile, day: day) }
+            .sheet(isPresented: $showAdd) {
+                AddSheet(profile: profile, day: day, initialRoute: launchRoute.wrappedValue)
+            }
+            // A quick action arrives as a route rather than a flag, so the sheet knows where to land.
+            // Cleared once handed over, or pressing the button twice would reopen the camera forever.
+            .onChange(of: launchRoute.wrappedValue) { _, route in
+                guard route != nil else { return }
+                showAdd = true
+            }
+            .onChange(of: showAdd) { _, open in
+                if !open { launchRoute.wrappedValue = nil }
+            }
             .sheet(item: $editing) { meal in MealDetailView(meal: meal, profile: profile) }
             .sheet(item: $breakdown) { nutrient in
                 NutrientBreakdownView(nutrient: nutrient, profile: profile, meals: meals, day: day)
@@ -166,7 +179,7 @@ struct HomeView: View {
             : (amount >= goal ? .green : .primary)
         let unit = nutrient.unit
         return Button { breakdown = nutrient } label: {
-            micro(nutrient.title, value: amount.formatted(), goal: "/ \(goal.formatted()) \(unit)", tint: tint,
+            micro(nutrient.title, value: amount.formatted(), goal: "/ \(goal.formatted())\(unit)", tint: tint,
                   spoken: "\(amount.formatted()) of \(goal.formatted()) \(unit == "mg" ? "milligrams" : "grams")")
         }
         .buttonStyle(PressableStyle())
@@ -304,7 +317,7 @@ struct MacroDial: View {
             .animation(.spring(response: 0.4, dampingFraction: 0.75), value: done)
 
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            Text("\(Int(eaten.rounded())) / \(Int(target)) g")
+            Text("\(Int(eaten.rounded())) / \(Int(target))g")
                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                 .lineLimit(1).minimumScaleFactor(0.7)
         }

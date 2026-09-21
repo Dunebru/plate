@@ -5,8 +5,12 @@ import SwiftData
 struct AddSheet: View {
     var profile: Profile
     var day: Date
+    /// Opened straight onto one flow, for the Action Button and Siri. The menu is still behind it,
+    /// so going back lands where it would have.
+    var initialRoute: Route? = nil
     @Environment(\.dismiss) private var dismiss
     @State private var path: [Route] = []
+    @State private var opened = false
     @State private var result: AnalyzedMeal?
     @State private var resultImage: UIImage?
 
@@ -51,6 +55,11 @@ struct AddSheet: View {
             }
             .sheet(item: $result) { meal in
                 ResultEditorView(meal: meal, image: resultImage, profile: profile, day: day) { dismiss() }
+            }
+            .onAppear {
+                guard !opened, let initialRoute else { return }
+                opened = true
+                path = [initialRoute]
             }
         }
         .presentationDetents([.large])

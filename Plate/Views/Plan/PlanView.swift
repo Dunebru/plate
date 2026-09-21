@@ -238,7 +238,7 @@ struct PlanView: View {
     private var extras: some View {
         VStack(alignment: .leading, spacing: 10) {
             sectionTitle("Also worth hitting", nil)
-            line("Fiber", "\(profile.fiberTarget) g", "14 g per 1,000 calories. It is what makes a deficit bearable.")
+            line("Fiber", "\(profile.fiberTarget)g", "14g per 1,000 calories. It is what makes a deficit bearable.")
             line("Water", "\(String(format: "%.1f", Double(profile.waterMl) / 1000)) L", "Roughly 35 ml per kilogram, plus what training costs.")
             if profile.drinksPerWeek > 0 {
                 line("Alcohol", "\(profile.drinksPerWeek) a week", "About \(profile.drinksPerWeek * 120) calories, before what it does to the next day's appetite.")
